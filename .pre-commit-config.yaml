@@ -1,0 +1,6 @@
+repos:
+  - repo: https://github.com/rust-lang/rust
+    rev: 1.53.0
+    hooks:
+      - id: rustfmt
+
