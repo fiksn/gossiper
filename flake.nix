@@ -29,7 +29,7 @@
               };
 
           devShell = pkgs.mkShell {
-            buildInputs = [ pkgs.rustc pkgs.cargo pkgs.pre-commit ];
+            buildInputs = [ pkgs.rustc pkgs.cargo pkgs.pre-commit pkgs.libiconv ];
 
             shellHook = ''
               echo "Dev shell launched"
