@@ -1,7 +1,8 @@
+use tokio::main;
 use tokio::net::TcpStream;
 use tokio::io::{AsyncReadExt};
 
-#[tokio::main]
+#[main]
 async fn main() {
     let server_addr = "127.0.0.1:8080";
 

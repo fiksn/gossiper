@@ -5,6 +5,7 @@ authors = ["fiksn"]
 edition = "2021"
 description = "LDK gossip ingestion"
 license = "MIT"
+build = "build.rs"
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }

@@ -14,12 +14,19 @@
     flake-utils.lib.eachDefaultSystem
       (system:
         let
-          pkgs = import nixpkgs {
+          pkgs = (import nixpkgs {
             inherit system;
-          };
+          }).extend overrides;
 
           lib = pkgs.lib;
           stdenv = pkgs.stdenv;
+
+          overrides = final: prev: {
+            #rustc = prev.rustc.overrideAttrs (old: {
+            #  # Override buildInputs so libiconv is in rust lib dir (for vscode)
+            #  buildInputs = old.buildInputs ++ lib.optionals stdenv.hostPlatform.isDarwin [ pkgs.libiconv ];
+            #});
+          };
         in
         {
           packages.default =
