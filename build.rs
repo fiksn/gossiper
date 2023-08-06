@@ -17,16 +17,21 @@ fn getdir(pattern: &str) -> Option<String> {
         let name = entry_path.file_name()?.to_str()?;
 
         if name.contains(pattern) {
-            return Some(format!("{}/{}/lib", DIR, name).to_string());
+            return Some(format!("{}/{}", DIR, name).to_string());
         }
     }
 
-    return None
+    None
 }
 
 fn main() {
-    // libiconv is a struggle on macos
-    if let Some(dir) = getdir("libiconv") {
-        println!("cargo:rustc-link-search=native={}", dir)
+    if cfg!(target_os = "macos") {
+        // When I use rust from nix this does not work else
+        if let Some(dir) = getdir("libiconv") {
+            println!("cargo:rustc-link-search=native={}/lib", dir)
+        }
+        if let Some(dir) = getdir("apple-framework-CoreFoundation") {
+            println!("cargo:rustc-link-search=framework={}/Library/Frameworks/", dir)
+        }
     }
 }

@@ -36,7 +36,7 @@
               };
 
           devShell = pkgs.mkShell {
-            buildInputs = [ pkgs.rustc pkgs.cargo pkgs.pre-commit pkgs.libiconv ];
+            buildInputs = [ pkgs.rustc pkgs.cargo pkgs.pre-commit ] ++ lib.optionals stdenv.hostPlatform.isDarwin [ pkgs.libiconv pkgs.darwin.cf-private];
 
             shellHook = ''
               echo "Dev shell launched"
