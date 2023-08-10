@@ -1,45 +1,43 @@
-mod addr {
-    use lightning::routing::gossip::NodeId;
-    use std::str::FromStr;
-    use bitcoin::secp256k1::PublicKey;
-    use std::net::AddrParseError;
-    use std::net::SocketAddr;
-    use thiserror::Error;
-    
+use lightning::routing::gossip::NodeId;
+use std::str::FromStr;
+use bitcoin::secp256k1::PublicKey;
+use std::net::AddrParseError;
+use std::net::SocketAddr;
+use thiserror::Error;
 
-    #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-    pub struct LightningNodeAddr {
-        pub node_id: NodeId,
-        pub endpoint: SocketAddr,
-    }
 
-    #[derive(Error, Debug, Eq, PartialEq)]
-    pub enum LightningNodeAddrError {
-        #[error("Parse error")]
-        ParseError,
-        #[error("Key error {0}")]
-        KeyError(#[from] bitcoin::secp256k1::Error),
-        #[error("Address error {0}")]
-        AddressError(#[from] AddrParseError),
-    }
-    
-    impl FromStr for LightningNodeAddr {
-        type Err = LightningNodeAddrError;
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct LightningNodeAddr {
+    pub node_id: NodeId,
+    pub endpoint: SocketAddr,
+}
 
-        fn from_str(s: &str) -> Result<Self, Self::Err> {
-            let chunks: Vec<&str> = s.split("@").collect();
-            if chunks.len() != 2 {
-                return Err(LightningNodeAddrError::ParseError);
-            }
+#[derive(Error, Debug, Eq, PartialEq)]
+pub enum LightningNodeAddrError {
+    #[error("Parse error")]
+    ParseError,
+    #[error("Key error {0}")]
+    KeyError(#[from] bitcoin::secp256k1::Error),
+    #[error("Address error {0}")]
+    AddressError(#[from] AddrParseError),
+}
 
-            Ok(Self{ node_id: NodeId::from_pubkey(&PublicKey::from_str(chunks.get(0).unwrap())?), endpoint: chunks.get(1).unwrap().parse()? })
+impl FromStr for LightningNodeAddr {
+    type Err = LightningNodeAddrError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let chunks: Vec<&str> = s.split("@").collect();
+        if chunks.len() != 2 {
+            return Err(LightningNodeAddrError::ParseError);
         }
+
+        Ok(Self{ node_id: NodeId::from_pubkey(&PublicKey::from_str(chunks.get(0).unwrap())?), endpoint: chunks.get(1).unwrap().parse()? })
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::addr::*;
+    use super::*;
     use std::str::FromStr;
     use bitcoin::secp256k1::Error::InvalidPublicKey;
     

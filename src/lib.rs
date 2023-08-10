@@ -1,2 +1,2 @@
 mod addr;
-mod lnresolve;
+mod resolve;
