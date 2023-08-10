@@ -240,7 +240,7 @@ impl RoutingMessageHandler for DummyHandler {
 		features.set_channel_type_optional();
 		features.set_scid_privacy_optional();
 		features.set_zero_conf_optional();
-        features.set_gossip_queries_optional();
+        features.set_gossip_queries_optional(); // this is needed for LND which won't create GossipSyncer else!
         
         features
     }
