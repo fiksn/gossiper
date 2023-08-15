@@ -4,6 +4,9 @@
 #![allow(unused_imports)]
 //#![allow(unreachable_code)]
 
+mod addr;
+mod resolve;
+
 use bitcoin::Block;
 use bitcoin::blockdata::transaction::Transaction;
 use bitcoin::hash_types::{BlockHash, Txid};
@@ -46,6 +49,8 @@ use std::ops::Deref;
 use std::{error::Error, net::SocketAddr};
 use std::fmt;
 use clap::Parser;
+use addr::*;
+
 
 struct DummyLogger();
 impl Logger for DummyLogger {
@@ -240,7 +245,7 @@ impl RoutingMessageHandler for DummyHandler {
 		features.set_channel_type_optional();
 		features.set_scid_privacy_optional();
 		features.set_zero_conf_optional();
-        features.set_gossip_queries_optional(); // this is needed for LND which won't create GossipSyncer else!
+        features.set_gossip_queries_optional(); // this is needed for LND which won't create GossipSyncer
         
         features
     }
@@ -257,23 +262,22 @@ type DummyPeerManager = PeerManager<
 >;
 
 
-///////
 
 
-/// Obtain gossip message from lightning network
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
     /// Server
-    #[arg(short, long)]
-    server: u16
+    #[arg(short, long,
+    default_value_t = LightningNodeAddrVec(vec!(LightningNodeAddr::from_str("03864ef025fde8fb587d989186ce6a4a186895ee44a926bfc370e2c366597a3f8f@3.33.236.230:9735").unwrap())),
+    )]
+    servers: LightningNodeAddrVec,
 }
-
-/////
-
 
 #[main]
 async fn main() {
+    let args = Args::parse();
+ 
     // Init peripheral
     let logger = Arc::new(DummyLogger());
     let current_time = SystemTime::now()
@@ -309,20 +313,16 @@ async fn main() {
     //let args = Args::parse();
 
     //peer_manager.get_peer_node_ids().
-    //["0327f763c849bfd218910e41eef74f5a737989358ab3565f185e1a61bb7df445b8"].unwrap();
-    // 03864ef025fde8fb587d989186ce6a4a186895ee44a926bfc370e2c366597a3f8f@3.33.236.230:9735
-    //024271a1be2d7a3e2a276b241257be734d843885d252f50575e4c7db2691aedd3a@81.56.42.102:18000
-    let pubkey: PublicKey =
-        PublicKey::from_str("0327f763c849bfd218910e41eef74f5a737989358ab3565f185e1a61bb7df445b8")
-            .unwrap();
-    let server_details = "89.212.253.230:9735";
+
     let connect_timeout = Duration::from_secs(5);
 
-    match timeout(connect_timeout, TcpStream::connect(server_details)).await {
-        Ok(stream) => {
-            println!("Connected to the server on {}", server_details);
+    //let first = args.servers.unwrap().get(0).unwrap();
 
-            let future1 = setup_outbound(peer_manager.clone(), pubkey, stream.unwrap().into_std().unwrap());
+    match timeout(connect_timeout, TcpStream::connect(args.servers.clone().0.get(0).unwrap().endpoint)).await {
+        Ok(stream) => {
+            println!("Connected to the server on {}", args.servers.clone().0.get(0).unwrap().endpoint);
+
+            let future1 = setup_outbound(peer_manager.clone(), args.servers.clone().0.get(0).unwrap().node_id.as_pubkey().unwrap(), stream.unwrap().into_std().unwrap());
 
             let future2 = async {
                 thread::sleep(Duration::from_secs(5));
@@ -331,12 +331,12 @@ async fn main() {
                 
                 peer_manager.clone().send_to_random_node(&msgs::QueryShortChannelIds { 
                     //chain_hash: genesis_block(Network::Bitcoin).header.block_hash(),
-                    chain_hash: BlockHash::from_hex("000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f").unwrap(),
+                    chain_hash: BlockHash::from_hex("000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce27f").unwrap(),
                     short_channel_ids: vec![869059488412139521]} );
 
                 peer_manager.clone().send_to_random_node(&msgs::QueryShortChannelIds { 
                     //chain_hash: genesis_block(Network::Bitcoin).header.block_hash(),
-                    chain_hash: BlockHash::from_hex("000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f").unwrap(),
+                    chain_hash: BlockHash::from_hex("000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce27f").unwrap(),
                     short_channel_ids: vec![874232690414845953]} );
                 
                 peer_manager.clone().send_to_random_node(&msgs::Ping{ ponglen: 1337,  byteslen: 1336 });
