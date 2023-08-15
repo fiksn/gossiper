@@ -7,12 +7,17 @@
 mod addr;
 mod resolve;
 
-use bitcoin::Block;
+use addr::*;
+use bitcoin::blockdata::constants::{genesis_block, ChainHash};
 use bitcoin::blockdata::transaction::Transaction;
 use bitcoin::hash_types::{BlockHash, Txid};
 use bitcoin::hashes::hex::FromHex;
+use bitcoin::network::constants::Network;
 use bitcoin::secp256k1::PublicKey;
+use bitcoin::Block;
 use chrono::Utc;
+use clap::Parser;
+use futures::future::join;
 use lightning::chain::chaininterface::{BroadcasterInterface, ConfirmationTarget, FeeEstimator};
 use lightning::chain::{chainmonitor, ChannelMonitorUpdateStatus};
 use lightning::events::{MessageSendEvent, MessageSendEventsProvider};
@@ -20,7 +25,7 @@ use lightning::ln::channelmanager::{
     ChainParameters, ChannelManagerReadArgs, SimpleArcChannelManager,
 };
 use lightning::ln::features::{InitFeatures, NodeFeatures};
-use lightning::ln::msgs::{RoutingMessageHandler, self};
+use lightning::ln::msgs::{self, RoutingMessageHandler};
 use lightning::ln::peer_handler::{
     ErroringMessageHandler, IgnoringMessageHandler, PeerManager, SimpleArcPeerManager,
 };
@@ -30,27 +35,21 @@ use lightning::sign::{EntropySource, InMemorySigner, KeysManager, SpendableOutpu
 use lightning::util::logger::{Logger, Record};
 use lightning_net_tokio::{setup_outbound, SocketDescriptor};
 use lightning_persister::FilesystemPersister;
-use bitcoin::blockdata::constants::{genesis_block, ChainHash};
-use bitcoin::network::constants::Network;
+use rand::RngCore;
 use rand::{thread_rng, Rng};
 use std::collections::HashMap;
+use std::fmt;
+use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
-use rand::RngCore;
 use std::time::{Duration, SystemTime};
+use std::{error::Error, net::SocketAddr};
 use tokio::main;
 use tokio::net::TcpStream;
 use tokio::net::ToSocketAddrs;
 use tokio::time::timeout;
-use futures::future::join;
-use std::ops::Deref;
-use std::{error::Error, net::SocketAddr};
-use std::fmt;
-use clap::Parser;
-use addr::*;
-
 
 struct DummyLogger();
 impl Logger for DummyLogger {
@@ -96,9 +95,9 @@ peer_manager.node_id_to_descriptor
 
 
  if msg.ponglen < 65532 {
-					let resp = msgs::Pong { byteslen: msg.ponglen };
-					self.enqueue_message(&mut *peer_mutex.lock().unwrap(), &resp);
-				}
+                    let resp = msgs::Pong { byteslen: msg.ponglen };
+                    self.enqueue_message(&mut *peer_mutex.lock().unwrap(), &resp);
+                }
 
 
 */
@@ -233,20 +232,20 @@ impl RoutingMessageHandler for DummyHandler {
         their_node_id: &PublicKey,
     ) -> lightning::ln::features::InitFeatures {
         let mut features = InitFeatures::empty();
-		
+
         features.set_data_loss_protect_optional();
-		features.set_upfront_shutdown_script_optional();
-		features.set_variable_length_onion_optional();
-		features.set_static_remote_key_optional();
-		features.set_payment_secret_optional();
-		features.set_basic_mpp_optional();
-		features.set_wumbo_optional();
-		features.set_shutdown_any_segwit_optional();
-		features.set_channel_type_optional();
-		features.set_scid_privacy_optional();
-		features.set_zero_conf_optional();
+        features.set_upfront_shutdown_script_optional();
+        features.set_variable_length_onion_optional();
+        features.set_static_remote_key_optional();
+        features.set_payment_secret_optional();
+        features.set_basic_mpp_optional();
+        features.set_wumbo_optional();
+        features.set_shutdown_any_segwit_optional();
+        features.set_channel_type_optional();
+        features.set_scid_privacy_optional();
+        features.set_zero_conf_optional();
         features.set_gossip_queries_optional(); // this is needed for LND which won't create GossipSyncer
-        
+
         features
     }
 }
@@ -261,23 +260,20 @@ type DummyPeerManager = PeerManager<
     Arc<KeysManager>,
 >;
 
-
-
-
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    /// Server
-    #[arg(short, long,
-    default_value_t = LightningNodeAddrVec(vec!(LightningNodeAddr::from_str("03864ef025fde8fb587d989186ce6a4a186895ee44a926bfc370e2c366597a3f8f@3.33.236.230:9735").unwrap())),
+    /// Servers
+    #[arg(short, long, num_args=1.., value_delimiter = ',',
+    default_value = "03864ef025fde8fb587d989186ce6a4a186895ee44a926bfc370e2c366597a3f8f@3.33.236.230:9735",
     )]
-    servers: LightningNodeAddrVec,
+    servers: Vec<LightningNodeAddr>,
 }
 
 #[main]
 async fn main() {
     let args = Args::parse();
- 
+
     // Init peripheral
     let logger = Arc::new(DummyLogger());
     let current_time = SystemTime::now()
@@ -298,8 +294,11 @@ async fn main() {
     //let persister = Arc::new(FilesystemPersister::new(".".to_string()));
     //let bitcoin = Arc::new(DummyBitcoin());
 
-    let handler = Arc::new(DummyHandler { info: Mutex::new(HashMap::new()), peer_manager: None });
-    
+    let handler = Arc::new(DummyHandler {
+        info: Mutex::new(HashMap::new()),
+        peer_manager: None,
+    });
+
     let peer_manager: Arc<DummyPeerManager> = Arc::new(PeerManager::new_routing_only(
         handler,
         current_time.as_secs().try_into().unwrap(),
@@ -309,40 +308,67 @@ async fn main() {
     ));
 
     //handler.peer_manager = Some(peer_manager.clone());
-    
-    //let args = Args::parse();
-
-    //peer_manager.get_peer_node_ids().
 
     let connect_timeout = Duration::from_secs(5);
 
-    //let first = args.servers.unwrap().get(0).unwrap();
-
-    match timeout(connect_timeout, TcpStream::connect(args.servers.clone().0.get(0).unwrap().endpoint)).await {
+    match timeout(
+        connect_timeout,
+        TcpStream::connect(args.servers.clone().get(0).unwrap().endpoint),
+    )
+    .await
+    {
         Ok(stream) => {
-            println!("Connected to the server on {}", args.servers.clone().0.get(0).unwrap().endpoint);
+            println!(
+                "Connected to the server on {}",
+                args.servers.clone().get(0).unwrap()
+            );
 
-            let future1 = setup_outbound(peer_manager.clone(), args.servers.clone().0.get(0).unwrap().node_id.as_pubkey().unwrap(), stream.unwrap().into_std().unwrap());
+            let future1 = setup_outbound(
+                peer_manager.clone(),
+                args.servers
+                    .clone()
+                    .get(0)
+                    .unwrap()
+                    .node_id
+                    .as_pubkey()
+                    .unwrap(),
+                stream.unwrap().into_std().unwrap(),
+            );
 
             let future2 = async {
                 thread::sleep(Duration::from_secs(5));
 
                 println!("Sending to random node");
-                
-                peer_manager.clone().send_to_random_node(&msgs::QueryShortChannelIds { 
-                    //chain_hash: genesis_block(Network::Bitcoin).header.block_hash(),
-                    chain_hash: BlockHash::from_hex("000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce27f").unwrap(),
-                    short_channel_ids: vec![869059488412139521]} );
 
-                peer_manager.clone().send_to_random_node(&msgs::QueryShortChannelIds { 
-                    //chain_hash: genesis_block(Network::Bitcoin).header.block_hash(),
-                    chain_hash: BlockHash::from_hex("000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce27f").unwrap(),
-                    short_channel_ids: vec![874232690414845953]} );
-                
-                peer_manager.clone().send_to_random_node(&msgs::Ping{ ponglen: 1337,  byteslen: 1336 });
+                peer_manager
+                    .clone()
+                    .send_to_random_node(&msgs::QueryShortChannelIds {
+                        //chain_hash: genesis_block(Network::Bitcoin).header.block_hash(),
+                        chain_hash: BlockHash::from_hex(
+                            "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce27f",
+                        )
+                        .unwrap(),
+                        short_channel_ids: vec![869059488412139521],
+                    });
+
+                peer_manager
+                    .clone()
+                    .send_to_random_node(&msgs::QueryShortChannelIds {
+                        //chain_hash: genesis_block(Network::Bitcoin).header.block_hash(),
+                        chain_hash: BlockHash::from_hex(
+                            "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce27f",
+                        )
+                        .unwrap(),
+                        short_channel_ids: vec![874232690414845953],
+                    });
+
+                peer_manager.clone().send_to_random_node(&msgs::Ping {
+                    ponglen: 1337,
+                    byteslen: 1336,
+                });
                 println!("...Done");
             };
-        
+
             join(future1, future2).await;
         }
         Err(e) => {

@@ -60,6 +60,14 @@ impl std::fmt::Display for LightningNodeAddrVec {
     }
 }
 
+impl std::ops::Deref for LightningNodeAddrVec {
+    type Target = Vec<LightningNodeAddr>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 impl FromStr for LightningNodeAddrVec {
     type Err = LightningNodeAddrError;
 
