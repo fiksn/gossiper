@@ -29,3 +29,4 @@ rand = { verson = "0.8" }
 serde_json = { version = "1.0" }
 clap = { version = "4.3.21", features = ["derive"]}
 thiserror = { version = "1.0.44" }
+parking_lot = { version = "0.12.1"}

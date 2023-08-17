@@ -5,7 +5,10 @@ use std::sync::Mutex;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::pin::Pin;
-//use super::DummyPeerManager;
+use parking_lot::RawMutex;
+use std::sync::Arc;
+
+use super::dummy::*;
 
 type EndpointData = u64; // TODO
 
@@ -21,15 +24,15 @@ trait ChannelResolving {
 pub struct CachingChannelResolving {
 	chan_id_cache: Mutex<HashMap<u64, EndpointData>>,
 	pending: Mutex<Vec<Pending>>,
-	//peer_manager: Option<DummyPeerManager>,
+	peer_manager: Mutex<Option<Arc<DummyPeerManager>>>,
 }
 
 impl CachingChannelResolving {
-	pub fn new() -> CachingChannelResolving {
+	pub fn new(peer_manager: Option<Arc<DummyPeerManager>>) -> CachingChannelResolving {
 		CachingChannelResolving{
 			chan_id_cache: Mutex::new([(1u64, 1337u64), (2u64, 1338u64), (3u64, 1339u64)].into_iter().collect()),
 			pending: Mutex::new(Vec::new()),
-			//peer_manager: peer_manager,
+			peer_manager: Mutex::new(peer_manager),
 		}
 	}
 
@@ -78,7 +81,7 @@ mod tests {
     //#[test]
 	#[tokio::test]
     async fn test_resolve() {
-		let mut resolver = CachingChannelResolving::new();
+		let mut resolver = CachingChannelResolving::new(None);
 
 		let a = resolver.get_endpoints(1);
 		resolver.resolve();

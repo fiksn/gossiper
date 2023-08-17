@@ -4,6 +4,7 @@
 #![allow(unused_imports)]
 //#![allow(unreachable_code)]
 
+mod dummy;
 mod addr;
 mod resolve;
 
@@ -17,7 +18,9 @@ use bitcoin::secp256k1::PublicKey;
 use bitcoin::Block;
 use chrono::Utc;
 use clap::Parser;
+use dummy::*;
 use futures::future::join;
+use futures::future::join_all;
 use lightning::chain::chaininterface::{BroadcasterInterface, ConfirmationTarget, FeeEstimator};
 use lightning::chain::{chainmonitor, ChannelMonitorUpdateStatus};
 use lightning::events::{MessageSendEvent, MessageSendEventsProvider};
@@ -43,231 +46,27 @@ use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::thread;
-use std::time::{Duration, SystemTime};
+use std::{thread, time::{Duration, SystemTime}};
 use std::{error::Error, net::SocketAddr};
 use tokio::main;
 use tokio::net::TcpStream;
 use tokio::net::ToSocketAddrs;
 use tokio::time::timeout;
-
-struct DummyLogger();
-impl Logger for DummyLogger {
-    fn log(&self, record: &Record) {
-        let raw_log = record.args.to_string();
-        println!(
-            "{} {:<5} [{}:{}] {}\n",
-            Utc::now().format("%Y-%m-%d %H:%M:%S%.3f"),
-            record.level.to_string(),
-            record.module_path,
-            record.line,
-            raw_log
-        );
-    }
-}
-
-struct DummyBitcoin();
-impl BroadcasterInterface for DummyBitcoin {
-    fn broadcast_transactions(&self, txs: &[&Transaction]) {
-        // do nothing
-    }
-}
-impl UtxoLookup for DummyBitcoin {
-    fn get_utxo(&self, _genesis_hash: &BlockHash, _short_channel_id: u64) -> UtxoResult {
-        UtxoResult::Sync(Err(UtxoLookupError::UnknownChain))
-    }
-}
-impl FeeEstimator for DummyBitcoin {
-    fn get_est_sat_per_1000_weight(&self, confirmation_target: ConfirmationTarget) -> u32 {
-        0
-    }
-}
-
-/*
-pub struct QueryShortChannelIds {
-    pub chain_hash: BlockHash,
-    pub short_channel_ids: Vec<u64>,
-}
-
-peer_manager.node_id_to_descriptor
- lightning::ln::peer_handler::SocketDescriptor
- send_data(&mut self, data: &[u8], resume_read: bool) -> usize
-
-
- if msg.ponglen < 65532 {
-                    let resp = msgs::Pong { byteslen: msg.ponglen };
-                    self.enqueue_message(&mut *peer_mutex.lock().unwrap(), &resp);
-                }
-
-
-*/
+use futures::future::ready;
 
 struct ChannelInfo {
     node1: NodeId,
     node2: NodeId,
 }
 
-struct DummyHandler {
-    info: Mutex<HashMap<u64, ChannelInfo>>,
-    peer_manager: Option<Arc<DummyPeerManager>>,
-}
-
-impl MessageSendEventsProvider for DummyHandler {
-    fn get_and_clear_pending_msg_events(&self) -> Vec<MessageSendEvent> {
-        Vec::new()
-    }
-}
-
-impl RoutingMessageHandler for DummyHandler {
-    fn handle_node_announcement(
-        &self,
-        msg: &lightning::ln::msgs::NodeAnnouncement,
-    ) -> Result<bool, lightning::ln::msgs::LightningError> {
-        println!("{:?}", msg.contents);
-        Ok(false)
-    }
-
-    fn handle_channel_announcement(
-        &self,
-        msg: &lightning::ln::msgs::ChannelAnnouncement,
-    ) -> Result<bool, lightning::ln::msgs::LightningError> {
-        /*
-        {
-            let mut guard = self.info.lock().unwrap();
-            guard.insert(msg.contents.short_channel_id, ChannelInfo { node1: msg.contents.node_id_1, node2: msg.contents.node_id_2});
-        }
-        */
-        println!("{:?}", msg.contents);
-        Ok(false)
-    }
-
-    fn handle_channel_update(
-        &self,
-        msg: &lightning::ln::msgs::ChannelUpdate,
-    ) -> Result<bool, lightning::ln::msgs::LightningError> {
-        println!(
-            "Chan {} {} {}",
-            msg.contents.short_channel_id, msg.contents.flags, msg.contents.chain_hash
-        );
-
-        // flags bit 0 direction, bit 1 disable
-        if msg.contents.flags & 0x2 == 0x2 {
-            println!("Disable!! {}", msg.contents.short_channel_id)
-        }
-
-        Ok(false)
-    }
-
-    fn get_next_channel_announcement(
-        &self,
-        starting_point: u64,
-    ) -> Option<(
-        lightning::ln::msgs::ChannelAnnouncement,
-        Option<lightning::ln::msgs::ChannelUpdate>,
-        Option<lightning::ln::msgs::ChannelUpdate>,
-    )> {
-        None
-    }
-
-    fn get_next_node_announcement(
-        &self,
-        starting_point: Option<&lightning::routing::gossip::NodeId>,
-    ) -> Option<lightning::ln::msgs::NodeAnnouncement> {
-        None
-    }
-
-    fn peer_connected(
-        &self,
-        their_node_id: &PublicKey,
-        init: &lightning::ln::msgs::Init,
-        inbound: bool,
-    ) -> Result<(), ()> {
-        Ok(())
-    }
-
-    fn handle_reply_channel_range(
-        &self,
-        their_node_id: &PublicKey,
-        msg: lightning::ln::msgs::ReplyChannelRange,
-    ) -> Result<(), lightning::ln::msgs::LightningError> {
-        println!("CHRANGE END");
-        Ok(())
-    }
-
-    fn handle_reply_short_channel_ids_end(
-        &self,
-        their_node_id: &PublicKey,
-        msg: lightning::ln::msgs::ReplyShortChannelIdsEnd,
-    ) -> Result<(), lightning::ln::msgs::LightningError> {
-        println!("CHID END");
-        Ok(())
-    }
-
-    fn handle_query_channel_range(
-        &self,
-        their_node_id: &PublicKey,
-        msg: lightning::ln::msgs::QueryChannelRange,
-    ) -> Result<(), lightning::ln::msgs::LightningError> {
-        Ok(())
-    }
-
-    fn handle_query_short_channel_ids(
-        &self,
-        their_node_id: &PublicKey,
-        msg: lightning::ln::msgs::QueryShortChannelIds,
-    ) -> Result<(), lightning::ln::msgs::LightningError> {
-        Ok(())
-    }
-
-    fn processing_queue_high(&self) -> bool {
-        false
-    }
-
-    fn provided_node_features(&self) -> lightning::ln::features::NodeFeatures {
-        NodeFeatures::empty()
-    }
-
-    fn provided_init_features(
-        &self,
-        their_node_id: &PublicKey,
-    ) -> lightning::ln::features::InitFeatures {
-        let mut features = InitFeatures::empty();
-
-        features.set_data_loss_protect_optional();
-        features.set_upfront_shutdown_script_optional();
-        features.set_variable_length_onion_optional();
-        features.set_static_remote_key_optional();
-        features.set_payment_secret_optional();
-        features.set_basic_mpp_optional();
-        features.set_wumbo_optional();
-        features.set_shutdown_any_segwit_optional();
-        features.set_channel_type_optional();
-        features.set_scid_privacy_optional();
-        features.set_zero_conf_optional();
-        features.set_gossip_queries_optional(); // this is needed for LND which won't create GossipSyncer
-
-        features
-    }
-}
-
-type DummyPeerManager = PeerManager<
-    SocketDescriptor,
-    ErroringMessageHandler,
-    Arc<DummyHandler>,
-    IgnoringMessageHandler,
-    Arc<DummyLogger>,
-    IgnoringMessageHandler,
-    Arc<KeysManager>,
->;
-
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    /// Servers
+    /// Nodes
     #[arg(short, long, num_args=1.., value_delimiter = ',',
     default_value = "03864ef025fde8fb587d989186ce6a4a186895ee44a926bfc370e2c366597a3f8f@3.33.236.230:9735",
     )]
-    servers: Vec<LightningNodeAddr>,
+    nodes: Vec<LightningNodeAddr>,
 }
 
 #[main]
@@ -296,36 +95,37 @@ async fn main() {
 
     let handler = Arc::new(DummyHandler {
         info: Mutex::new(HashMap::new()),
-        peer_manager: None,
+        peer_manager: Mutex::new(None),
     });
 
     let peer_manager: Arc<DummyPeerManager> = Arc::new(PeerManager::new_routing_only(
-        handler,
+        handler.clone(),
         current_time.as_secs().try_into().unwrap(),
         &ephemeral_bytes,
         logger.clone(),
         keys_manager.clone(),
     ));
 
-    //handler.peer_manager = Some(peer_manager.clone());
+    *(handler.peer_manager.lock().unwrap()) = Some(peer_manager.clone());
 
+   
+
+    /*
     let connect_timeout = Duration::from_secs(5);
 
+   
     match timeout(
         connect_timeout,
-        TcpStream::connect(args.servers.clone().get(0).unwrap().endpoint),
+        TcpStream::connect(args.nodes.clone().get(0).unwrap().endpoint),
     )
     .await
     {
         Ok(stream) => {
-            println!(
-                "Connected to the server on {}",
-                args.servers.clone().get(0).unwrap()
-            );
+            println!("Connected to node {}", args.nodes.clone().get(0).unwrap());
 
             let future1 = setup_outbound(
                 peer_manager.clone(),
-                args.servers
+                args.nodes
                     .clone()
                     .get(0)
                     .unwrap()
@@ -370,9 +170,40 @@ async fn main() {
             };
 
             join(future1, future2).await;
+            println!("AWAITED");
         }
         Err(e) => {
             eprintln!("Failed to connect to the server: {}", e);
         }
+    }
+
+    println!("Demo");
+    */
+
+    let mut futures: Vec<Box<dyn std::future::Future<Output = ()> + Unpin>> = Vec::new();
+
+    for node in args.nodes.clone() {
+        if let Some(future) = connect(node, peer_manager.clone()).await {
+            println!("Awaiting...");
+            futures.push(Box::new(Box::pin(future)));
+        }
+    }
+
+    join_all(futures).await;
+}
+
+async fn connect(node: LightningNodeAddr, peer_manager: Arc<DummyPeerManager>) -> Option<impl std::future::Future<Output=()>> {
+    let connect_timeout = Duration::from_secs(5);
+
+    if let Ok(Ok(stream)) = timeout(connect_timeout, async { TcpStream::connect(node.endpoint).await.map(|s| s.into_std().unwrap()) }).await {
+        println!("Connected to node {}", node);
+		return Some(setup_outbound(
+            peer_manager.clone(),
+            node.node_id.as_pubkey().unwrap(),
+            stream,
+        ));
+	} else { 
+        eprintln!("Failed to connect to the server");
+        return None;
     }
 }
