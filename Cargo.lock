@@ -407,6 +407,7 @@ dependencies = [
  "lightning-persister",
  "lightning-rapid-gossip-sync",
  "parking_lot",
+ "periodic_timer",
  "rand",
  "serde_json",
  "thiserror",
@@ -678,6 +679,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "periodic_timer"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "883ea054184f4f7622ff0f1ad4afa2c9e6ce8c235fb7b8ee6ebb1cf5e7253ea6"
+dependencies = [
+ "spin_sleep",
+]
+
+[[package]]
 name = "pin-project-lite"
 version = "0.2.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -851,6 +861,16 @@ checksum = "2538b18701741680e0322a2302176d3253a35388e2e62f172f64f4f16605f877"
 dependencies = [
  "libc",
  "windows-sys",
+]
+
+[[package]]
+name = "spin_sleep"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cafa7900db085f4354dbc7025e25d7a839a14360ea13b5fc4fd717f2d3b23134"
+dependencies = [
+ "once_cell",
+ "winapi",
 ]
 
 [[package]]

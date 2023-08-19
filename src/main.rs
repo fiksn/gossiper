@@ -53,6 +53,7 @@ use tokio::net::TcpStream;
 use tokio::net::ToSocketAddrs;
 use tokio::time::timeout;
 use futures::future::ready;
+use resolve::*;
 
 struct ChannelInfo {
     node1: NodeId,
@@ -93,21 +94,26 @@ async fn main() {
     //let persister = Arc::new(FilesystemPersister::new(".".to_string()));
     //let bitcoin = Arc::new(DummyBitcoin());
 
+    /*
     let handler = Arc::new(DummyHandler {
         info: Mutex::new(HashMap::new()),
         peer_manager: Mutex::new(None),
     });
+    */
 
-    let peer_manager: Arc<DummyPeerManager> = Arc::new(PeerManager::new_routing_only(
-        handler.clone(),
+    let resolver = Arc::new(CachingChannelResolving::new());
+
+    let peer_manager: Arc<ResolvePeerManager> = Arc::new(PeerManager::new_routing_only(
+        resolver.clone(),
         current_time.as_secs().try_into().unwrap(),
         &ephemeral_bytes,
         logger.clone(),
         keys_manager.clone(),
     ));
 
-    *(handler.peer_manager.lock().unwrap()) = Some(peer_manager.clone());
+    //*(handler.peer_manager.lock().unwrap()) = Some(peer_manager.clone());
 
+    resolver.register_peer_manager(peer_manager.clone());
    
 
     /*
@@ -177,6 +183,11 @@ async fn main() {
         }
     }
 
+                    chain_hash: BlockHash::from_hex(
+                    "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce27f",
+                )
+
+
     println!("Demo");
     */
 
@@ -189,10 +200,38 @@ async fn main() {
         }
     }
 
+    let query = async {
+        thread::sleep(Duration::from_secs(5));
+
+        println!("Sending to random node");
+
+        peer_manager
+            .clone()
+            .send_to_random_node(&msgs::QueryShortChannelIds {
+                chain_hash: genesis_block(Network::Bitcoin).header.block_hash(),
+                short_channel_ids: vec![869059488412139521],
+            });
+
+        peer_manager
+            .clone()
+            .send_to_random_node(&msgs::QueryShortChannelIds {
+                chain_hash: genesis_block(Network::Bitcoin).header.block_hash(),
+                short_channel_ids: vec![874232690414845953],
+            });
+
+        peer_manager.clone().send_to_random_node(&msgs::Ping {
+            ponglen: 1337,
+            byteslen: 1336,
+        });
+        println!("...Done");
+    };
+
+    futures.push(Box::new(Box::pin(query)));
+
     join_all(futures).await;
 }
 
-async fn connect(node: LightningNodeAddr, peer_manager: Arc<DummyPeerManager>) -> Option<impl std::future::Future<Output=()>> {
+async fn connect(node: LightningNodeAddr, peer_manager: Arc<ResolvePeerManager>) -> Option<impl std::future::Future<Output=()>> {
     let connect_timeout = Duration::from_secs(5);
 
     if let Ok(Ok(stream)) = timeout(connect_timeout, async { TcpStream::connect(node.endpoint).await.map(|s| s.into_std().unwrap()) }).await {
@@ -203,7 +242,7 @@ async fn connect(node: LightningNodeAddr, peer_manager: Arc<DummyPeerManager>) -
             stream,
         ));
 	} else { 
-        eprintln!("Failed to connect to the server");
+        eprintln!("Failed to connect to the node {}", node);
         return None;
     }
 }

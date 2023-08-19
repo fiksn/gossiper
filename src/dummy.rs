@@ -84,6 +84,8 @@ impl FeeEstimator for DummyBitcoin {
     }
 }
 
+/////////////////////////////////
+
 pub struct DummyHandler {
     pub info: Mutex<HashMap<u64, ChannelInfo>>,
     pub peer_manager: Mutex<Option<Arc<DummyPeerManager>>>,
@@ -222,6 +224,7 @@ impl RoutingMessageHandler for DummyHandler {
     ) -> lightning::ln::features::InitFeatures {
         let mut features = InitFeatures::empty();
 
+        /*
         features.set_data_loss_protect_optional();
         features.set_upfront_shutdown_script_optional();
         features.set_variable_length_onion_optional();
@@ -234,6 +237,7 @@ impl RoutingMessageHandler for DummyHandler {
         features.set_scid_privacy_optional();
         features.set_zero_conf_optional();
         features.set_gossip_queries_optional(); // this is needed for LND which won't create GossipSyncer
+        */
 
         features
     }
