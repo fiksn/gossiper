@@ -3,10 +3,6 @@ use futures::channel::oneshot;
 use futures::channel::oneshot::*;
 use lightning::routing::gossip::NodeId;
 
-use parking_lot::lock_api::RawMutexTimed;
-use parking_lot::lock_api::RawMutex;
-use parking_lot::RawMutex as RMutex;
-
 use std::sync::Mutex;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -31,6 +27,8 @@ use tokio::time;
 
 
 use super::dummy::*;
+use super::mutex::*;
+use parking_lot::lock_api::RawMutex;
 
 pub type ResolvePeerManager = PeerManager<
     SocketDescriptor,
@@ -54,8 +52,10 @@ struct Pending {
 	sender: Sender<EndpointData>,
 }
 
-trait ChannelResolving {
-	fn get_endpoints(&self, id: u64) -> Pin<Box<dyn Future<Output = Result<EndpointData, Canceled>>>>;
+pub trait ChannelResolving {
+	fn get_endpoints_async(&self, id: u64) -> Pin<Box<dyn Future<Output = Result<EndpointData, Canceled>>>>;
+    fn is_endpoint_cached(&self, id: u64) -> bool;
+    fn get_node(&self, node_id: NodeId) -> Option<lightning::ln::msgs::UnsignedNodeAnnouncement>;
 }
 
 pub struct CachingChannelResolving {
@@ -63,7 +63,7 @@ pub struct CachingChannelResolving {
 	node_cache: Mutex<HashMap<NodeId, lightning::ln::msgs::UnsignedNodeAnnouncement>>,
 	pending: Mutex<Vec<Pending>>,
 	peer_manager: Mutex<Option<Arc<ResolvePeerManager>>>,
-	server_lock: RMutex,
+	server_lock: RMutexMax,
 }
 
 impl CachingChannelResolving {
@@ -73,7 +73,7 @@ impl CachingChannelResolving {
 			node_cache: Mutex::new(HashMap::new()),
 			pending: Mutex::new(Vec::new()),
 			peer_manager: Mutex::new(None),
-			server_lock: RawMutex::INIT,
+			server_lock: RMutexMax::INIT,
 		}
 	}
 
@@ -81,20 +81,18 @@ impl CachingChannelResolving {
 		*(self.peer_manager.lock().unwrap()) = Some(peer_manager.clone());
 	}
 
-	pub async fn start(&self) {
-    	let mut ticker = time::interval(Duration::from_secs(10));
-
-    	loop {
-			ticker.tick().await;
-        	self.timer_func();
-		}
+    // TODO: when this is a method this does not work due to lifetimes
+	pub async fn start(other: Arc<CachingChannelResolving>) {
+		tokio::spawn(async move {
+			let mut interval_stream = time::interval(Duration::from_secs(10));
+					
+        	loop {
+				other.clone().timer_func();
+	        	interval_stream.tick().await;
+        	}
+		});
 	}
 
-	pub fn get_node(&self, node_id: NodeId) -> Option<lightning::ln::msgs::UnsignedNodeAnnouncement> {
-		let guard = self.node_cache.lock().unwrap();
-		return guard.get(&node_id).cloned();
-	}
- 
     fn timer_func(&self) {
 		let todo = self.get_todo();
 		if todo.is_empty() {
@@ -102,13 +100,14 @@ impl CachingChannelResolving {
 		} else {
 			if let Ok(pm) = self.peer_manager.try_lock() {
 				let vec: Vec<_> = todo.into_iter().collect();
-				if self.server_lock.try_lock_for(Duration::from_secs(120)) {
+				if self.server_lock.try_lock_max(Duration::from_secs(128)) {
 					pm.clone().unwrap().send_to_random_node(&msgs::QueryShortChannelIds {
 						chain_hash: genesis_block(Network::Bitcoin).header.block_hash(),
 						short_channel_ids: vec,
 					});
 				} else {
 					println!("Did not get response from server yet");
+					// unlock
 				}
 			}
 		}
@@ -139,13 +138,25 @@ impl CachingChannelResolving {
 }
 
 impl ChannelResolving for CachingChannelResolving {
-	fn get_endpoints(&self, id: u64) -> Pin<Box<dyn Future<Output = Result<EndpointData, Canceled>>>> {
+	fn get_endpoints_async(&self, id: u64) -> Pin<Box<dyn Future<Output = Result<EndpointData, Canceled>>>> {
 		let (sender, receiver) = oneshot::channel::<EndpointData>();
 
 		self.pending.lock().unwrap().push(Pending { id: id, sender: sender});
-		
 		Box::pin(receiver)
 	}
+
+    fn get_node(&self, node_id: NodeId) -> Option<lightning::ln::msgs::UnsignedNodeAnnouncement> {
+		let guard = self.node_cache.lock().unwrap();
+		return guard.get(&node_id).cloned();
+	}
+
+    fn is_endpoint_cached(&self, id: u64) -> bool {
+        if self.chan_id_cache.lock().unwrap().get(&id) == None {
+            false
+        } else {
+            true
+        }
+    }
 }
 
 
@@ -291,7 +302,6 @@ impl RoutingMessageHandler for CachingChannelResolving {
 		features
     }
 }
-
   
 #[cfg(test)]
 mod tests {
@@ -303,7 +313,7 @@ mod tests {
     async fn test_resolve() {
 		let mut resolver = CachingChannelResolving::new(None);
 
-		let a = resolver.get_endpoints(1);
+		let a = resolver.get_endpoints_async(1);
 		resolver.resolve();
 		
 		let result = a.await;
