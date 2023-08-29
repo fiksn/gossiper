@@ -114,6 +114,7 @@ async fn main() {
 
     let voter = Arc::new(Voter::new());
     voter.register_resolver(resolver.clone());
+    resolver.register_voter(voter.clone());
     
     let mut futures: Vec<Box<dyn std::future::Future<Output = ()> + Unpin>> = Vec::new();
 

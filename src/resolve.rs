@@ -29,6 +29,7 @@ use std::time::{Duration, SystemTime};
 
 use super::dummy::*;
 use super::mutex::*;
+use super::voter::*;
 use parking_lot::lock_api::RawMutex;
 
 pub type ResolvePeerManager = PeerManager<
@@ -67,6 +68,7 @@ pub struct CachingChannelResolving {
 	node_cache: Mutex<HashMap<NodeId, lightning::ln::msgs::UnsignedNodeAnnouncement>>,
 	pending: Mutex<Vec<Pending>>,
 	peer_manager: Mutex<Option<Arc<ResolvePeerManager>>>,
+    voter: Mutex<Option<Arc<Voter>>>,
 	server_lock: RMutexMax,
 }
 
@@ -77,12 +79,17 @@ impl CachingChannelResolving {
 			node_cache: Mutex::new(HashMap::new()),
 			pending: Mutex::new(Vec::new()),
 			peer_manager: Mutex::new(None),
+            voter: Mutex::new(None),
 			server_lock: RMutexMax::INIT,
 		}
 	}
 
 	pub fn register_peer_manager(&self, peer_manager: Arc<ResolvePeerManager>) {
 		*(self.peer_manager.lock().unwrap()) = Some(peer_manager.clone());
+	}
+
+    pub fn register_voter(&self, voter: Arc<Voter>) {
+		*(self.voter.lock().unwrap()) = Some(voter.clone());
 	}
 
     // TODO: when this is a method this does not work due to lifetimes
@@ -138,11 +145,6 @@ impl CachingChannelResolving {
 			}
 		}
 	}
-
-    fn burek(this: Arc<Mutex<&Self>>) {
-        println!("BUREK");
-    }
-
 }
 
 impl ChannelResolving for CachingChannelResolving {
@@ -201,17 +203,24 @@ impl RoutingMessageHandler for CachingChannelResolving {
         // flags: bit 0 direction, bit 1 disable
         let direction = (msg.contents.flags & 0x1) as usize;
         let chanid = msg.contents.short_channel_id; 
+        let voter = self.voter.lock().unwrap().clone().unwrap();
 
         if msg.contents.flags & 0x2 == 0x2 {
             // Disable
             println!("DISABLE direction: {}", direction);
             
             tokio::spawn(async move {
+                voter.burek().await;
+            });
+
+            /*
+            tokio::spawn(async move {
                     //let node = ss.get_node(block_on(ss.get_endpoints_async(chanid)).expect("channel data").nodes[direction]).unwrap();
                     let s = Arc::new(Mutex::new(self));
                     println!("Disable!!" );
                     CachingChannelResolving::burek(s.clone());
             });
+            */
             
             return Ok(false);
         } else {
