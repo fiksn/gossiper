@@ -8,6 +8,7 @@ mod mutex;
 mod addr;
 mod dummy;
 mod resolve;
+mod voter;
 
 use addr::*;
 use bitcoin::blockdata::constants::{genesis_block, ChainHash};
@@ -20,6 +21,7 @@ use bitcoin::Block;
 use chrono::Utc;
 use clap::Parser;
 use dummy::*;
+use voter::*;
 use futures::future::join;
 use futures::future::join_all;
 use futures::future::ready;
@@ -110,6 +112,9 @@ async fn main() {
     resolver.register_peer_manager(peer_manager.clone());
     CachingChannelResolving::start(resolver.clone()).await;
 
+    let voter = Arc::new(Voter::new());
+    voter.register_resolver(resolver.clone());
+    
     let mut futures: Vec<Box<dyn std::future::Future<Output = ()> + Unpin>> = Vec::new();
 
     for node in args.nodes.clone() {
@@ -118,6 +123,7 @@ async fn main() {
         }
     }
 
+    /*
     let query = async {
         thread::sleep(Duration::from_secs(5));
 
@@ -129,6 +135,7 @@ async fn main() {
     };
 
     futures.push(Box::new(Box::pin(query)));
+    */
 
     join_all(futures).await;
 }

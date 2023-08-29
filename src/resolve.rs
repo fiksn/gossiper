@@ -1,6 +1,7 @@
 use futures::future::Future;
 use futures::channel::oneshot;
 use futures::channel::oneshot::*;
+use futures::executor::block_on;
 use lightning::routing::gossip::NodeId;
 
 use std::sync::Mutex;
@@ -22,8 +23,8 @@ use lightning::events::MessageSendEvent;
 use lightning::ln::msgs::{self, RoutingMessageHandler};
 use lightning::events::MessageSendEventsProvider;
 use bitcoin::secp256k1::PublicKey;
-use std::time::Duration;
 use tokio::time;
+use std::time::{Duration, SystemTime};
 
 
 use super::dummy::*;
@@ -46,6 +47,9 @@ pub struct EndpointData {
 	pub nodes: [NodeId; 2],
 }
 
+unsafe impl Send for EndpointData {}
+
+
 #[derive(Debug)]
 struct Pending {
 	id: u64,
@@ -53,7 +57,7 @@ struct Pending {
 }
 
 pub trait ChannelResolving {
-	fn get_endpoints_async(&self, id: u64) -> Pin<Box<dyn Future<Output = Result<EndpointData, Canceled>>>>;
+	fn get_endpoints_async(&self, id: u64) -> Pin<Box<dyn Future<Output = Result<EndpointData, Canceled>> + Send>>;
     fn is_endpoint_cached(&self, id: u64) -> bool;
     fn get_node(&self, node_id: NodeId) -> Option<lightning::ln::msgs::UnsignedNodeAnnouncement>;
 }
@@ -82,7 +86,7 @@ impl CachingChannelResolving {
 	}
 
     // TODO: when this is a method this does not work due to lifetimes
-	pub async fn start(other: Arc<CachingChannelResolving>) {
+	pub async fn start(other: Arc<Self>) {
 		tokio::spawn(async move {
 			let mut interval_stream = time::interval(Duration::from_secs(10));
 					
@@ -107,7 +111,6 @@ impl CachingChannelResolving {
 					});
 				} else {
 					println!("Did not get response from server yet");
-					// unlock
 				}
 			}
 		}
@@ -135,10 +138,15 @@ impl CachingChannelResolving {
 			}
 		}
 	}
+
+    fn burek(this: Arc<Mutex<&Self>>) {
+        println!("BUREK");
+    }
+
 }
 
 impl ChannelResolving for CachingChannelResolving {
-	fn get_endpoints_async(&self, id: u64) -> Pin<Box<dyn Future<Output = Result<EndpointData, Canceled>>>> {
+	fn get_endpoints_async(&self, id: u64) -> Pin<Box<dyn Future<Output = Result<EndpointData, Canceled>> + Send>> {
 		let (sender, receiver) = oneshot::channel::<EndpointData>();
 
 		self.pending.lock().unwrap().push(Pending { id: id, sender: sender});
@@ -151,14 +159,9 @@ impl ChannelResolving for CachingChannelResolving {
 	}
 
     fn is_endpoint_cached(&self, id: u64) -> bool {
-        if self.chan_id_cache.lock().unwrap().get(&id) == None {
-            false
-        } else {
-            true
-        }
+        self.chan_id_cache.lock().unwrap().get(&id) != None
     }
 }
-
 
 impl MessageSendEventsProvider for CachingChannelResolving {
     fn get_and_clear_pending_msg_events(&self) -> Vec<MessageSendEvent> {
@@ -183,8 +186,6 @@ impl RoutingMessageHandler for CachingChannelResolving {
 			short_channel_id: msg.contents.short_channel_id,
 			nodes: [ msg.contents.node_id_1, msg.contents.node_id_2],
 		});
-		
-        println!("{:?}", msg.contents);
         Ok(false)
     }
 
@@ -197,9 +198,31 @@ impl RoutingMessageHandler for CachingChannelResolving {
             msg.contents.short_channel_id, msg.contents.flags, msg.contents.chain_hash
         );
 
-        // flags bit 0 direction, bit 1 disable
+        // flags: bit 0 direction, bit 1 disable
+        let direction = (msg.contents.flags & 0x1) as usize;
+        let chanid = msg.contents.short_channel_id; 
+
         if msg.contents.flags & 0x2 == 0x2 {
-            println!("Disable!! {}", msg.contents.short_channel_id)
+            // Disable
+            println!("DISABLE direction: {}", direction);
+            
+            tokio::spawn(async move {
+                    //let node = ss.get_node(block_on(ss.get_endpoints_async(chanid)).expect("channel data").nodes[direction]).unwrap();
+                    let s = Arc::new(Mutex::new(self));
+                    println!("Disable!!" );
+                    CachingChannelResolving::burek(s.clone());
+            });
+            
+            return Ok(false);
+        } else {
+            // Enable
+            if !self.is_endpoint_cached(chanid) {
+                // Skip further processing
+                return Ok(false);
+            }
+
+            let node = self.get_node(block_on(self.get_endpoints_async(chanid)).expect("channel data").nodes[direction]).unwrap();
+            println!("Enable!! {} {}", chanid, node.node_id);
         }
 
         Ok(false)
@@ -229,6 +252,28 @@ impl RoutingMessageHandler for CachingChannelResolving {
         init: &lightning::ln::msgs::Init,
         inbound: bool,
     ) -> Result<(), ()> {
+
+        // When gossip queries are negotiated you MUST send GossipTimestampFilter or else no gossip message will be received
+        if let Ok(pm) = self.peer_manager.try_lock() {
+            let peer = pm.clone().unwrap();
+            let node = their_node_id.clone();
+            let current_time = SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap();
+
+            // Spawn this in new thread to avoid lock being held
+            tokio::spawn(async move {
+                let mut wait = time::interval(Duration::from_secs(1));
+                wait.tick().await;
+
+                peer.send_to_node(node, &msgs::GossipTimestampFilter {
+                        chain_hash: genesis_block(Network::Bitcoin).header.block_hash(),
+                        first_timestamp: current_time.as_secs() as u32,
+                        timestamp_range: u32::MAX,
+                });
+            });
+        }
+
         Ok(())
     }
 
@@ -285,21 +330,9 @@ impl RoutingMessageHandler for CachingChannelResolving {
         their_node_id: &PublicKey,
     ) -> lightning::ln::features::InitFeatures {
         let mut features = InitFeatures::empty();
+        features.set_gossip_queries_optional(); // this is needed for LND which won't create GossipSyncer else
 
-        features.set_data_loss_protect_optional();
-        features.set_upfront_shutdown_script_optional();
-        features.set_variable_length_onion_optional();
-        features.set_static_remote_key_optional();
-        features.set_payment_secret_optional();
-        features.set_basic_mpp_optional();
-        features.set_wumbo_optional();
-        features.set_shutdown_any_segwit_optional();
-        features.set_channel_type_optional();
-        features.set_scid_privacy_optional();
-        features.set_zero_conf_optional();
-        features.set_gossip_queries_optional(); // this is needed for LND which won't create GossipSyncer
-
-		features
+        features
     }
 }
   
