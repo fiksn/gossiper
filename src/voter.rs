@@ -1,4 +1,4 @@
-use lightning::routing::gossip::NodeId;
+use lightning::routing::gossip::{NodeId, NodeAlias};
 use lightning::util::logger::Logger;
 use lightning::*;
 use std::collections::{HashMap, HashSet};
@@ -9,6 +9,11 @@ use super::dummy::*;
 use super::resolve::*;
 
 /// Voter is able to count votes regarding unavailability
+
+pub struct NodeData {
+    pub node_id: NodeId,
+	pub alias: NodeAlias,
+}
 
 pub struct Voter<L: Deref + Send + std::marker::Sync + 'static>
 where
@@ -36,16 +41,36 @@ where
         *(self.resolver.lock().unwrap()) = Some(resolver.clone());
     }
 
+    async fn get_node(&self, chanid: u64, direction: usize) -> NodeData {
+        let res = self.resolver.lock().unwrap().clone().unwrap();
+
+        let id = res.get_endpoints_async(chanid).await.expect("channel data").nodes[direction];
+
+        let n = res.get_node(id);
+
+        if n == None {
+            log_trace!(self.logger, "Node data for nodeid {} not available", id);
+
+            let result: [u8; 32] = [0; 32];
+
+            return NodeData  {
+                node_id: id,
+                alias: NodeAlias(result),
+            };
+        }
+
+        let node = n.unwrap();
+
+        NodeData {
+            node_id: node.node_id,
+            alias: node.alias,
+        }
+
+    }
+
     pub async fn disable(&self, chanid: u64, direction: usize) {
         let res = self.resolver.lock().unwrap().clone().unwrap();
-        let node = res
-            .get_node(
-                res.get_endpoints_async(chanid)
-                    .await
-                    .expect("channel data")
-                    .nodes[direction],
-            )
-            .expect("node data");
+        let node = self.get_node(chanid, direction).await;
 
         log_trace!(
             self.logger,
@@ -81,21 +106,16 @@ where
     }
 
     pub async fn enable(&self, chanid: u64, direction: usize) {
-        let res = self.resolver.lock().unwrap().clone().unwrap();
+        {
+            let res = self.resolver.lock().unwrap().clone().unwrap();
 
-        if !res.is_endpoint_cached(chanid) {
-            // Ignore enabling channels which we are unaware of
-            return;
+            if !res.is_endpoint_cached(chanid) {
+                // Ignore enabling channels which we are unaware of
+                return;
+            }
         }
 
-        let node = res
-            .get_node(
-                res.get_endpoints_async(chanid)
-                    .await
-                    .expect("channel data")
-                    .nodes[direction],
-            )
-            .expect("node data");
+        let node = self.get_node(chanid, direction).await;
 
         log_trace!(
             self.logger,

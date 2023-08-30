@@ -3,13 +3,13 @@ use std::fs;
 // getdir will search for library with given pattern in nix store
 fn getdir(pattern: &str) -> Option<String> {
     const DIR: &str = "/nix/store";
-    
+
     let entries = fs::read_dir(DIR).ok()?;
 
     for entry in entries {
         let entry = entry.ok()?;
         let entry_path = entry.path();
-        
+
         if !entry_path.is_dir() || entry_path.file_name() == None {
             continue;
         }
@@ -31,7 +31,10 @@ fn main() {
             println!("cargo:rustc-link-search=native={}/lib", dir)
         }
         if let Some(dir) = getdir("apple-framework-CoreFoundation") {
-            println!("cargo:rustc-link-search=framework={}/Library/Frameworks/", dir)
+            println!(
+                "cargo:rustc-link-search=framework={}/Library/Frameworks/",
+                dir
+            )
         }
     }
 }

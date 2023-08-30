@@ -36,6 +36,7 @@ use parking_lot::lock_api::RawMutex;
 
 const MAX_TIMEOUT: Duration = Duration::from_secs(128);
 const POLL_INTERVAL: Duration = Duration::from_secs(10);
+const DEBUG: bool = false;
 
 pub type ResolvePeerManager = PeerManager<
     SocketDescriptor,
@@ -323,6 +324,9 @@ where
         msg: lightning::ln::msgs::ReplyShortChannelIdsEnd,
     ) -> Result<(), lightning::ln::msgs::LightningError> {
         // Unlock the raw mutex
+        if DEBUG {
+            log_debug!(self.logger, "Short channel ids reply");
+        }
         unsafe {
             if self.server_lock.is_locked() {
                 self.server_lock.unlock();

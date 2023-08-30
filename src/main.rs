@@ -76,14 +76,14 @@ struct Args {
     nodes: Vec<LightningNodeAddr>,
 
     /// Threshold
-    #[arg(short, long, num_args = 1, default_value_t = 3)]
+    #[arg(short, long, num_args = 1, default_value_t = 5)]
     threshold: u8,
 }
 
+const DEBUG: bool = false;
+
 #[main]
 async fn main() {
-    const DEBUG: bool = true;
-
     let args = Args::parse();
 
     // Init peripheral
@@ -138,10 +138,12 @@ async fn main() {
 
             log_info!(logger, "Invoking query");
 
+            let chanid = 869059488412139521u64;
+
             let nodeid1 = (*resolver)
                 .get_node(
                     (*resolver)
-                        .get_endpoints_async(869059488412139521u64)
+                        .get_endpoints_async(chanid)
                         .await
                         .expect("channel data")
                         .nodes[0],
@@ -151,7 +153,7 @@ async fn main() {
             let nodeid2 = (*resolver)
                 .get_node(
                     (*resolver)
-                        .get_endpoints_async(869059488412139521u64)
+                        .get_endpoints_async(chanid)
                         .await
                         .expect("channel data")
                         .nodes[1],
@@ -162,7 +164,7 @@ async fn main() {
                 logger,
                 "{} --{}--> {}",
                 nodeid1,
-                869059488412139521u64,
+                chanid,
                 nodeid2
             );
         };
