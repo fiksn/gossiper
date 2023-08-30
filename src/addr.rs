@@ -5,6 +5,8 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 use thiserror::Error;
 
+/// LightningNodeAddr represents a lightning node address in the form "0288037d3f0bdcfb240402b43b80cdc32e41528b3e2ebe05884aff507d71fca71a@161.97.184.185:9735"
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub struct LightningNodeAddr {
     pub node_id: NodeId,

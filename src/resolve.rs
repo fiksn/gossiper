@@ -25,17 +25,24 @@ use lightning::events::MessageSendEventsProvider;
 use bitcoin::secp256k1::PublicKey;
 use tokio::time;
 use std::time::{Duration, SystemTime};
-
+use lightning::util::logger::Logger;
+use lightning::log_info;
+use std::ops::Deref;
 
 use super::dummy::*;
 use super::mutex::*;
 use super::voter::*;
 use parking_lot::lock_api::RawMutex;
 
+/// ChannelResolving can get endpoints based on (short) channel id
+
+const MAX_TIMEOUT: Duration = Duration::from_secs(128);
+const POLL_INTERVAL: Duration = Duration::from_secs(10);
+
 pub type ResolvePeerManager = PeerManager<
     SocketDescriptor,
     ErroringMessageHandler,
-    Arc<CachingChannelResolving>,
+    Arc<CachingChannelResolving<Arc<DummyLogger>>>,
     IgnoringMessageHandler,
     Arc<DummyLogger>,
     IgnoringMessageHandler,
@@ -63,19 +70,21 @@ pub trait ChannelResolving {
     fn get_node(&self, node_id: NodeId) -> Option<lightning::ln::msgs::UnsignedNodeAnnouncement>;
 }
 
-pub struct CachingChannelResolving {
+pub struct CachingChannelResolving<L: Deref + Send + std::marker::Sync + 'static> where L::Target: Logger {
+    logger: L,
 	chan_id_cache: Mutex<HashMap<u64, EndpointData>>,
 	node_cache: Mutex<HashMap<NodeId, lightning::ln::msgs::UnsignedNodeAnnouncement>>,
 	pending: Mutex<Vec<Pending>>,
 	peer_manager: Mutex<Option<Arc<ResolvePeerManager>>>,
-    voter: Mutex<Option<Arc<Voter>>>,
+    voter: Mutex<Option<Arc<Voter<Arc<DummyLogger>>>>>,
 	server_lock: RMutexMax,
 }
 
-impl CachingChannelResolving {
-	pub fn new() -> CachingChannelResolving {
+impl <L: Deref + Send + std::marker::Sync + 'static> CachingChannelResolving<L> where L::Target: Logger {
+	pub fn new(logger: L) -> CachingChannelResolving<L> {
 		CachingChannelResolving{
-			chan_id_cache: Mutex::new(HashMap::new()),
+			logger: logger,
+            chan_id_cache: Mutex::new(HashMap::new()),
 			node_cache: Mutex::new(HashMap::new()),
 			pending: Mutex::new(Vec::new()),
 			peer_manager: Mutex::new(None),
@@ -88,14 +97,14 @@ impl CachingChannelResolving {
 		*(self.peer_manager.lock().unwrap()) = Some(peer_manager.clone());
 	}
 
-    pub fn register_voter(&self, voter: Arc<Voter>) {
+    pub fn register_voter(&self, voter: Arc<Voter<Arc<DummyLogger>>>) {
 		*(self.voter.lock().unwrap()) = Some(voter.clone());
 	}
 
-    // TODO: when this is a method this does not work due to lifetimes
+    // TODO: when this is a method (with &self) this does not work due to lifetimes
 	pub async fn start(other: Arc<Self>) {
 		tokio::spawn(async move {
-			let mut interval_stream = time::interval(Duration::from_secs(10));
+			let mut interval_stream = time::interval(POLL_INTERVAL);
 					
         	loop {
 				other.clone().timer_func();
@@ -107,17 +116,17 @@ impl CachingChannelResolving {
     fn timer_func(&self) {
 		let todo = self.get_todo();
 		if todo.is_empty() {
-			self.resolve();
+            self.resolve();
 		} else {
 			if let Ok(pm) = self.peer_manager.try_lock() {
 				let vec: Vec<_> = todo.into_iter().collect();
-				if self.server_lock.try_lock_max(Duration::from_secs(128)) {
+				if self.server_lock.try_lock_max(MAX_TIMEOUT) {
 					pm.clone().unwrap().send_to_random_node(&msgs::QueryShortChannelIds {
 						chain_hash: genesis_block(Network::Bitcoin).header.block_hash(),
 						short_channel_ids: vec,
 					});
 				} else {
-					println!("Did not get response from server yet");
+					log_info!(self.logger, "Did not get response from server yet");
 				}
 			}
 		}
@@ -132,7 +141,7 @@ impl CachingChannelResolving {
 				set.insert(one.id);
 			}
 		}
-		
+
 		set
 	}
 	
@@ -147,7 +156,7 @@ impl CachingChannelResolving {
 	}
 }
 
-impl ChannelResolving for CachingChannelResolving {
+impl <L: Deref + Send + std::marker::Sync + 'static> ChannelResolving for CachingChannelResolving<L> where L::Target: Logger {
 	fn get_endpoints_async(&self, id: u64) -> Pin<Box<dyn Future<Output = Result<EndpointData, Canceled>> + Send>> {
 		let (sender, receiver) = oneshot::channel::<EndpointData>();
 
@@ -165,13 +174,13 @@ impl ChannelResolving for CachingChannelResolving {
     }
 }
 
-impl MessageSendEventsProvider for CachingChannelResolving {
+impl <L: Deref + Send + std::marker::Sync + 'static> MessageSendEventsProvider for CachingChannelResolving<L> where L::Target: Logger {
     fn get_and_clear_pending_msg_events(&self) -> Vec<MessageSendEvent> {
         Vec::new()
     }
 }
 
-impl RoutingMessageHandler for CachingChannelResolving {
+impl <L: Deref + Send + std::marker::Sync + 'static> RoutingMessageHandler for CachingChannelResolving<L> where L::Target: Logger {
     fn handle_node_announcement(
         &self,
         msg: &lightning::ln::msgs::NodeAnnouncement,
@@ -195,11 +204,6 @@ impl RoutingMessageHandler for CachingChannelResolving {
         &self,
         msg: &lightning::ln::msgs::ChannelUpdate,
     ) -> Result<bool, lightning::ln::msgs::LightningError> {
-        println!(
-            "Chan {} {} {}",
-            msg.contents.short_channel_id, msg.contents.flags, msg.contents.chain_hash
-        );
-
         // flags: bit 0 direction, bit 1 disable
         let direction = (msg.contents.flags & 0x1) as usize;
         let chanid = msg.contents.short_channel_id; 
@@ -207,31 +211,16 @@ impl RoutingMessageHandler for CachingChannelResolving {
 
         if msg.contents.flags & 0x2 == 0x2 {
             // Disable
-            println!("DISABLE direction: {}", direction);
             
             tokio::spawn(async move {
-                voter.burek().await;
+                voter.disable(chanid, direction).await;
             });
-
-            /*
-            tokio::spawn(async move {
-                    //let node = ss.get_node(block_on(ss.get_endpoints_async(chanid)).expect("channel data").nodes[direction]).unwrap();
-                    let s = Arc::new(Mutex::new(self));
-                    println!("Disable!!" );
-                    CachingChannelResolving::burek(s.clone());
-            });
-            */
-            
-            return Ok(false);
         } else {
             // Enable
-            if !self.is_endpoint_cached(chanid) {
-                // Skip further processing
-                return Ok(false);
-            }
 
-            let node = self.get_node(block_on(self.get_endpoints_async(chanid)).expect("channel data").nodes[direction]).unwrap();
-            println!("Enable!! {} {}", chanid, node.node_id);
+            tokio::spawn(async move {
+                voter.enable(chanid, direction).await;
+            });
         }
 
         Ok(false)
@@ -262,7 +251,8 @@ impl RoutingMessageHandler for CachingChannelResolving {
         inbound: bool,
     ) -> Result<(), ()> {
 
-        // When gossip queries are negotiated you MUST send GossipTimestampFilter or else no gossip message will be received
+        // When "gossip queries" feature is negotiated you MUST send GossipTimestampFilter or else no gossip message will ever be received
+        // And we enable "gossip queries" since else LND won't respond to queries (see provided_init_features)
         if let Ok(pm) = self.peer_manager.try_lock() {
             let peer = pm.clone().unwrap();
             let node = their_node_id.clone();
@@ -270,7 +260,7 @@ impl RoutingMessageHandler for CachingChannelResolving {
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .unwrap();
 
-            // Spawn this in new thread to avoid lock being held
+            // Spawn this in new thread to avoid peer lock being held
             tokio::spawn(async move {
                 let mut wait = time::interval(Duration::from_secs(1));
                 wait.tick().await;
@@ -350,7 +340,6 @@ mod tests {
     use super::*;
 	use tokio::test;
 
-    //#[test]
 	#[tokio::test]
     async fn test_resolve() {
 		let mut resolver = CachingChannelResolving::new(None);
@@ -361,7 +350,5 @@ mod tests {
 		let result = a.await;
 
 		println!("{:?}", result);
-
-		panic!("Foo");
     }
 }

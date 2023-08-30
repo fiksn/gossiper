@@ -39,7 +39,7 @@ use lightning::ln::peer_handler::{
 use lightning::routing::gossip::NodeId;
 use lightning::routing::utxo::{UtxoLookup, UtxoLookupError, UtxoResult};
 use lightning::sign::{EntropySource, InMemorySigner, KeysManager, SpendableOutputDescriptor};
-use lightning::util::logger::{Logger, Record};
+use lightning::util::logger::{Logger, Level, Record};
 use lightning_net_tokio::{setup_outbound, SocketDescriptor};
 use lightning_persister::FilesystemPersister;
 use rand::RngCore;
@@ -59,6 +59,7 @@ use tokio::main;
 use tokio::net::TcpStream;
 use tokio::net::ToSocketAddrs;
 use tokio::time::timeout;
+use lightning::log_info;
 
 struct ChannelInfo {
     node1: NodeId,
@@ -73,6 +74,9 @@ struct Args {
     default_value = "03864ef025fde8fb587d989186ce6a4a186895ee44a926bfc370e2c366597a3f8f@3.33.236.230:9735",
     )]
     nodes: Vec<LightningNodeAddr>,
+    /// Threshold
+    #[arg(short, long, num_args=1, default_value = "5")]
+    threshold: u8,
 }
 
 #[main]
@@ -80,7 +84,7 @@ async fn main() {
     let args = Args::parse();
 
     // Init peripheral
-    let logger = Arc::new(DummyLogger());
+    let logger = Arc::new(DummyLogger::new());
     let current_time = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap();
@@ -99,7 +103,7 @@ async fn main() {
     //let persister = Arc::new(FilesystemPersister::new(".".to_string()));
     //let bitcoin = Arc::new(DummyBitcoin());
 
-    let resolver: Arc<CachingChannelResolving> = Arc::new(CachingChannelResolving::new());
+    let resolver: Arc<CachingChannelResolving<Arc<DummyLogger>>> = Arc::new(CachingChannelResolving::new(logger.clone()));
 
     let peer_manager: Arc<ResolvePeerManager> = Arc::new(PeerManager::new_routing_only(
         resolver.clone(),
@@ -112,7 +116,7 @@ async fn main() {
     resolver.register_peer_manager(peer_manager.clone());
     CachingChannelResolving::start(resolver.clone()).await;
 
-    let voter = Arc::new(Voter::new());
+    let voter = Arc::new(Voter::new(args.threshold, logger.clone()));
     voter.register_resolver(resolver.clone());
     resolver.register_voter(voter.clone());
     
@@ -123,20 +127,19 @@ async fn main() {
             futures.push(Box::new(Box::pin(future)));
         }
     }
-
-    /*
+    
+    // Dummy query
     let query = async {
-        thread::sleep(Duration::from_secs(5));
+        thread::sleep(Duration::from_secs(7));
 
-        println!("Query");
+        log_info!(logger, "Invoking query");
 
         let nodeid1 = (*resolver).get_node((*resolver).get_endpoints_async(869059488412139521u64).await.expect("channel data").nodes[0]).unwrap().node_id;
         let nodeid2 = (*resolver).get_node((*resolver).get_endpoints_async(869059488412139521u64).await.expect("channel data").nodes[1]).unwrap().node_id;
-        println!("{} --{}--> {}", nodeid1, 869059488412139521u64, nodeid2);
+        log_info!(logger, "{} --{}--> {}", nodeid1, 869059488412139521u64, nodeid2);
     };
 
     futures.push(Box::new(Box::pin(query)));
-    */
 
     join_all(futures).await;
 }

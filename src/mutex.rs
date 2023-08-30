@@ -4,7 +4,7 @@ use chrono::{Utc, DateTime, TimeZone};
 use std::time::Duration;
 use std::sync::Mutex;
 
-/// RMutexMax is a mutex with maximum lifetime
+/// RMutexMax is a mutex with maximum lifetime (you can probably solve this in a more elegant way)
 
 pub struct RMutexMax {
     mutex: RMutex,
