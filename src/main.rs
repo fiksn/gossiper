@@ -160,13 +160,7 @@ async fn main() {
                 )
                 .unwrap()
                 .node_id;
-            log_info!(
-                logger,
-                "{} --{}--> {}",
-                nodeid1,
-                chanid,
-                nodeid2
-            );
+            log_info!(logger, "{} --{}--> {}", nodeid1, chanid, nodeid2);
         };
 
         futures.push(Box::new(Box::pin(query)));

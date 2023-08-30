@@ -1,4 +1,4 @@
-use lightning::routing::gossip::{NodeId, NodeAlias};
+use lightning::routing::gossip::{NodeAlias, NodeId};
 use lightning::util::logger::Logger;
 use lightning::*;
 use std::collections::{HashMap, HashSet};
@@ -12,7 +12,7 @@ use super::resolve::*;
 
 pub struct NodeData {
     pub node_id: NodeId,
-	pub alias: NodeAlias,
+    pub alias: NodeAlias,
 }
 
 pub struct Voter<L: Deref + Send + std::marker::Sync + 'static>
@@ -44,7 +44,11 @@ where
     async fn get_node(&self, chanid: u64, direction: usize) -> NodeData {
         let res = self.resolver.lock().unwrap().clone().unwrap();
 
-        let id = res.get_endpoints_async(chanid).await.expect("channel data").nodes[direction];
+        let id = res
+            .get_endpoints_async(chanid)
+            .await
+            .expect("channel data")
+            .nodes[direction];
 
         let n = res.get_node(id);
 
@@ -53,7 +57,7 @@ where
 
             let result: [u8; 32] = [0; 32];
 
-            return NodeData  {
+            return NodeData {
                 node_id: id,
                 alias: NodeAlias(result),
             };
@@ -65,7 +69,6 @@ where
             node_id: node.node_id,
             alias: node.alias,
         }
-
     }
 
     pub async fn disable(&self, chanid: u64, direction: usize) {
