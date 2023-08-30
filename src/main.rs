@@ -76,13 +76,13 @@ struct Args {
     nodes: Vec<LightningNodeAddr>,
     
     /// Threshold
-    #[arg(short, long, num_args=1, default_value = "5")]
+    #[arg(short, long, num_args=1, default_value_t = 3)]
     threshold: u8,
 }
 
 #[main]
 async fn main() {
-    const DEBUG: bool = false;
+    const DEBUG: bool = true;
 
     let args = Args::parse();
 

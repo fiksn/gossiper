@@ -124,7 +124,7 @@ impl <L: Deref + Send + std::marker::Sync + 'static> CachingChannelResolving<L> 
 						short_channel_ids: vec,
 					});
 				} else {
-					log_info!(self.logger, "Did not get response from server yet");
+					log_trace!(self.logger, "Did not get response from server yet");
 				}
 			}
 		}
@@ -148,7 +148,7 @@ impl <L: Deref + Send + std::marker::Sync + 'static> CachingChannelResolving<L> 
 		
 		while let Some(e) = data.pop() {
 			if let Some(num) = self.chan_id_cache.lock().unwrap().get(&e.id) {
-				e.sender.send(*num);
+				let _ = e.sender.send(*num);
 			}
 		}
 	}

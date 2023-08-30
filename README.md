@@ -11,6 +11,8 @@ Trick is that peers disable their channel with a node as soon as TCP connection 
 
 All without sending a single probe packet to the target.
 
+The tool is completely stateless, everything it needs is queried through `QueryShortChannelIds` and cached later one.
+
 ## Fingerprinting Lightning implementations
 
 While developing this I have found a simple way to fingerprint lightnig node implementations.

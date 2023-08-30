@@ -10,18 +10,19 @@ build = "build.rs"
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
-lightning = { path = "../rust-lightning/lightning", features = ["max_level_trace"] }
-lightning-block-sync = { path = "../rust-lightning/lightning-block-sync", features = [ "rpc-client" ] }
+lightning = { git = "https://github.com/fiksn/rust-lightning", features = ["max_level_trace"] }
+lightning-block-sync = {git = "https://github.com/fiksn/rust-lightning", features = [ "rpc-client" ] }
 lightning-invoice = { version = "0.24.0" }
-lightning-net-tokio = { path = "../rust-lightning/lightning-net-tokio" }
-lightning-persister = { path = "../rust-lightning/lightning-persister" }
-lightning-background-processor = { path = "../rust-lightning/lightning-background-processor", features = [ "futures" ] }
-lightning-rapid-gossip-sync = { path = "../rust-lightning/lightning-rapid-gossip-sync" }
-base64 = "0.13.0"
-bitcoin = "0.29.0"
-bitcoin-bech32 = "0.12"
-bech32 = "0.8"
-hex = "0.3"
+lightning-net-tokio = { git = "https://github.com/fiksn/rust-lightning" }
+lightning-persister = { git = "https://github.com/fiksn/rust-lightning" }
+lightning-background-processor = { git = "https://github.com/fiksn/rust-lightning", features = [ "futures" ] }
+lightning-rapid-gossip-sync = { git = "https://github.com/fiksn/rust-lightning" }
+base64 = "0.21.3"
+# do not upgrade to bitcoon 0.30!
+bitcoin = "0.29.2"
+bitcoin-bech32 = "0.13.0"
+bech32 = "0.9.1"
+hex = "0.4.3"
 libc = "0.2"
 futures = "0.3"
 chrono = "0.4"
