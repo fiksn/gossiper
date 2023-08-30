@@ -74,6 +74,7 @@ struct Args {
     default_value = "03864ef025fde8fb587d989186ce6a4a186895ee44a926bfc370e2c366597a3f8f@3.33.236.230:9735",
     )]
     nodes: Vec<LightningNodeAddr>,
+    
     /// Threshold
     #[arg(short, long, num_args=1, default_value = "5")]
     threshold: u8,
@@ -81,6 +82,8 @@ struct Args {
 
 #[main]
 async fn main() {
+    const DEBUG: bool = false;
+
     let args = Args::parse();
 
     // Init peripheral
@@ -128,18 +131,19 @@ async fn main() {
         }
     }
     
-    // Dummy query
-    let query = async {
-        thread::sleep(Duration::from_secs(7));
+    if DEBUG {
+        let query = async {
+            thread::sleep(Duration::from_secs(7));
 
-        log_info!(logger, "Invoking query");
+            log_info!(logger, "Invoking query");
 
-        let nodeid1 = (*resolver).get_node((*resolver).get_endpoints_async(869059488412139521u64).await.expect("channel data").nodes[0]).unwrap().node_id;
-        let nodeid2 = (*resolver).get_node((*resolver).get_endpoints_async(869059488412139521u64).await.expect("channel data").nodes[1]).unwrap().node_id;
-        log_info!(logger, "{} --{}--> {}", nodeid1, 869059488412139521u64, nodeid2);
-    };
+            let nodeid1 = (*resolver).get_node((*resolver).get_endpoints_async(869059488412139521u64).await.expect("channel data").nodes[0]).unwrap().node_id;
+            let nodeid2 = (*resolver).get_node((*resolver).get_endpoints_async(869059488412139521u64).await.expect("channel data").nodes[1]).unwrap().node_id;
+            log_info!(logger, "{} --{}--> {}", nodeid1, 869059488412139521u64, nodeid2);
+        };
 
-    futures.push(Box::new(Box::pin(query)));
+        futures.push(Box::new(Box::pin(query)));
+    }
 
     join_all(futures).await;
 }

@@ -1,6 +1,10 @@
 use std::sync::{Arc, Mutex};
 use std::ops::Deref;
 use lightning::util::logger::Logger;
+use lightning::*;
+use std::collections::{HashMap, HashSet};
+use lightning::routing::gossip::NodeId;
+
 use super::resolve::*;
 use super::dummy::*;
 
@@ -10,6 +14,7 @@ pub struct Voter<L: Deref + Send + std::marker::Sync + 'static> where L::Target:
     logger: L,
     threshold: u8,
     resolver: Mutex<Option<Arc<CachingChannelResolving<Arc<DummyLogger>>>>>,
+    data: Mutex<HashMap<NodeId, HashSet<u64>>>,
 }
 impl <L: Deref + Send + std::marker::Sync + 'static> Voter<L> where L::Target: Logger {
 	pub fn new(threshold: u8, logger: L) -> Voter<L> {
@@ -17,6 +22,7 @@ impl <L: Deref + Send + std::marker::Sync + 'static> Voter<L> where L::Target: L
             resolver: Mutex::new(None),
             logger: logger,
             threshold: threshold,
+            data: Mutex::new(HashMap::new()),
         }
     }
 
@@ -28,20 +34,23 @@ impl <L: Deref + Send + std::marker::Sync + 'static> Voter<L> where L::Target: L
         let res = self.resolver.lock().unwrap().clone().unwrap();
         let node = res.get_node(res.get_endpoints_async(chanid).await.expect("channel data").nodes[direction]).expect("node data");
 
-        println!("DISABLE chid: {} direction: {} node: {} alias: {}", chanid, direction, node.node_id, node.alias);
+        log_trace!(self.logger, "DISABLE chid: {} direction: {} node: {} alias: {}", chanid, direction, node.node_id, node.alias);
+        let guard = self.data.lock().unwrap();
+
+        
     }
 
     pub async fn enable(&self, chanid: u64, direction: usize) {
         let res = self.resolver.lock().unwrap().clone().unwrap();
 
         if !res.is_endpoint_cached(chanid) {
-            // Ignore enabling for channels which we don't know
+            // Ignore enabling channels which we are unaware of
             return;
         }
 
         let node = res.get_node(res.get_endpoints_async(chanid).await.expect("channel data").nodes[direction]).expect("node data");
 
-        println!("ENABLE chid: {} direction: {} node: {} alias: {}", chanid, direction, node.node_id, node.alias);
+        log_trace!(self.logger, "ENABLE chid: {} direction: {} node: {} alias: {}", chanid, direction, node.node_id, node.alias);
     }
 
 }

@@ -1,12 +1,10 @@
 use futures::future::Future;
 use futures::channel::oneshot;
 use futures::channel::oneshot::*;
-use futures::executor::block_on;
 use lightning::routing::gossip::NodeId;
 
 use std::sync::Mutex;
-use std::collections::HashMap;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::pin::Pin;
 use std::sync::Arc;
 use bitcoin::blockdata::constants::genesis_block;
@@ -26,7 +24,7 @@ use bitcoin::secp256k1::PublicKey;
 use tokio::time;
 use std::time::{Duration, SystemTime};
 use lightning::util::logger::Logger;
-use lightning::log_info;
+use lightning::*;
 use std::ops::Deref;
 
 use super::dummy::*;
