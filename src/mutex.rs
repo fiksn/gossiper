@@ -1,14 +1,14 @@
-use parking_lot::lock_api::{RawMutex, GuardSend};
+use chrono::{DateTime, TimeZone, Utc};
+use parking_lot::lock_api::{GuardSend, RawMutex};
 use parking_lot::RawMutex as RMutex;
-use chrono::{Utc, DateTime, TimeZone};
-use std::time::Duration;
 use std::sync::Mutex;
+use std::time::Duration;
 
 /// RMutexMax is a mutex with maximum lifetime (you can probably solve this in a more elegant way)
 
 pub struct RMutexMax {
     mutex: RMutex,
-    time: Mutex<DateTime::<Utc>>,
+    time: Mutex<DateTime<Utc>>,
 }
 
 pub unsafe trait RawMutexMax: RawMutex {
@@ -27,8 +27,8 @@ unsafe impl RawMutexMax for RMutexMax {
                 unsafe {
                     self.mutex.unlock();
                     *self.time.lock().unwrap() = now + chrono::Duration::from_std(timeout).unwrap();
-                    
-                    return self.mutex.try_lock()
+
+                    return self.mutex.try_lock();
                 }
             }
 

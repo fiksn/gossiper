@@ -77,14 +77,12 @@ impl FromStr for LightningNodeAddrVec {
         let result: Result<Vec<LightningNodeAddr>, LightningNodeAddrError> = s
             .split(',')
             .map(str::trim)
-            .map(|part| {
-                LightningNodeAddr::from_str(part)
-            })
+            .map(|part| LightningNodeAddr::from_str(part))
             .collect();
 
         if let Ok(ret) = result {
             return Ok(LightningNodeAddrVec(ret));
-        } else if let Err(err) = result{
+        } else if let Err(err) = result {
             return Err(err);
         }
 

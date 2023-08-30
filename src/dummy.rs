@@ -19,10 +19,11 @@ use lightning::ln::msgs::{self, RoutingMessageHandler};
 use lightning::ln::peer_handler::{
     ErroringMessageHandler, IgnoringMessageHandler, PeerManager, SimpleArcPeerManager,
 };
+use lightning::routing::gossip::ChannelInfo;
 use lightning::routing::gossip::NodeId;
 use lightning::routing::utxo::{UtxoLookup, UtxoLookupError, UtxoResult};
 use lightning::sign::{EntropySource, InMemorySigner, KeysManager, SpendableOutputDescriptor};
-use lightning::util::logger::{Logger, Level, Record};
+use lightning::util::logger::{Level, Logger, Record};
 use lightning_net_tokio::{setup_outbound, SocketDescriptor};
 use lightning_persister::FilesystemPersister;
 use rand::RngCore;
@@ -40,11 +41,10 @@ use tokio::main;
 use tokio::net::TcpStream;
 use tokio::net::ToSocketAddrs;
 use tokio::time::timeout;
-use lightning::routing::gossip::ChannelInfo;
 
 /// Dummy implementations
 
-pub struct DummyLogger{
+pub struct DummyLogger {
     level: Level,
 }
 

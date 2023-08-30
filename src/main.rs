@@ -4,9 +4,9 @@
 #![allow(unused_imports)]
 //#![allow(unreachable_code)]
 
-mod mutex;
 mod addr;
 mod dummy;
+mod mutex;
 mod resolve;
 mod voter;
 
@@ -21,7 +21,6 @@ use bitcoin::Block;
 use chrono::Utc;
 use clap::Parser;
 use dummy::*;
-use voter::*;
 use futures::future::join;
 use futures::future::join_all;
 use futures::future::ready;
@@ -36,10 +35,11 @@ use lightning::ln::msgs::{self, RoutingMessageHandler};
 use lightning::ln::peer_handler::{
     ErroringMessageHandler, IgnoringMessageHandler, PeerManager, SimpleArcPeerManager,
 };
+use lightning::log_info;
 use lightning::routing::gossip::NodeId;
 use lightning::routing::utxo::{UtxoLookup, UtxoLookupError, UtxoResult};
 use lightning::sign::{EntropySource, InMemorySigner, KeysManager, SpendableOutputDescriptor};
-use lightning::util::logger::{Logger, Level, Record};
+use lightning::util::logger::{Level, Logger, Record};
 use lightning_net_tokio::{setup_outbound, SocketDescriptor};
 use lightning_persister::FilesystemPersister;
 use rand::RngCore;
@@ -59,7 +59,7 @@ use tokio::main;
 use tokio::net::TcpStream;
 use tokio::net::ToSocketAddrs;
 use tokio::time::timeout;
-use lightning::log_info;
+use voter::*;
 
 struct ChannelInfo {
     node1: NodeId,
@@ -74,9 +74,9 @@ struct Args {
     default_value = "03864ef025fde8fb587d989186ce6a4a186895ee44a926bfc370e2c366597a3f8f@3.33.236.230:9735",
     )]
     nodes: Vec<LightningNodeAddr>,
-    
+
     /// Threshold
-    #[arg(short, long, num_args=1, default_value_t = 3)]
+    #[arg(short, long, num_args = 1, default_value_t = 3)]
     threshold: u8,
 }
 
@@ -106,7 +106,8 @@ async fn main() {
     //let persister = Arc::new(FilesystemPersister::new(".".to_string()));
     //let bitcoin = Arc::new(DummyBitcoin());
 
-    let resolver: Arc<CachingChannelResolving<Arc<DummyLogger>>> = Arc::new(CachingChannelResolving::new(logger.clone()));
+    let resolver: Arc<CachingChannelResolving<Arc<DummyLogger>>> =
+        Arc::new(CachingChannelResolving::new(logger.clone()));
 
     let peer_manager: Arc<ResolvePeerManager> = Arc::new(PeerManager::new_routing_only(
         resolver.clone(),
@@ -122,7 +123,7 @@ async fn main() {
     let voter = Arc::new(Voter::new(args.threshold, logger.clone()));
     voter.register_resolver(resolver.clone());
     resolver.register_voter(voter.clone());
-    
+
     let mut futures: Vec<Box<dyn std::future::Future<Output = ()> + Unpin>> = Vec::new();
 
     for node in args.nodes.clone() {
@@ -130,16 +131,40 @@ async fn main() {
             futures.push(Box::new(Box::pin(future)));
         }
     }
-    
+
     if DEBUG {
         let query = async {
             thread::sleep(Duration::from_secs(7));
 
             log_info!(logger, "Invoking query");
 
-            let nodeid1 = (*resolver).get_node((*resolver).get_endpoints_async(869059488412139521u64).await.expect("channel data").nodes[0]).unwrap().node_id;
-            let nodeid2 = (*resolver).get_node((*resolver).get_endpoints_async(869059488412139521u64).await.expect("channel data").nodes[1]).unwrap().node_id;
-            log_info!(logger, "{} --{}--> {}", nodeid1, 869059488412139521u64, nodeid2);
+            let nodeid1 = (*resolver)
+                .get_node(
+                    (*resolver)
+                        .get_endpoints_async(869059488412139521u64)
+                        .await
+                        .expect("channel data")
+                        .nodes[0],
+                )
+                .unwrap()
+                .node_id;
+            let nodeid2 = (*resolver)
+                .get_node(
+                    (*resolver)
+                        .get_endpoints_async(869059488412139521u64)
+                        .await
+                        .expect("channel data")
+                        .nodes[1],
+                )
+                .unwrap()
+                .node_id;
+            log_info!(
+                logger,
+                "{} --{}--> {}",
+                nodeid1,
+                869059488412139521u64,
+                nodeid2
+            );
         };
 
         futures.push(Box::new(Box::pin(query)));
