@@ -1,12 +1,12 @@
 use lightning::routing::gossip::{NodeAlias, NodeId};
 use lightning::util::logger::Logger;
 use lightning::*;
+use reqwest;
+use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
-use std::sync::{Arc, Mutex};
-use reqwest;
 use std::str::FromStr;
-use serde::Deserialize;
+use std::sync::{Arc, Mutex};
 
 use super::dummy::*;
 use super::resolve::*;
@@ -152,8 +152,11 @@ where
 
     async fn get_nodeinfo(node_id: NodeId) -> Option<NodeInfo> {
         reqwest::get(format!("https://1ml.com/node/{}/json", node_id.to_string()))
-            .await.ok()?.json::<NodeInfo>().await.ok()
-        
+            .await
+            .ok()?
+            .json::<NodeInfo>()
+            .await
+            .ok()
     }
 }
 
@@ -163,17 +166,20 @@ pub struct NodeInfo {
     pub channelcount: u64,
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::test;
     use bitcoin::secp256k1::PublicKey;
+    use tokio::test;
 
     #[tokio::test]
     async fn test_get_nodeinfo() {
         let id: &str = "0327f763c849bfd218910e41eef74f5a737989358ab3565f185e1a61bb7df445b8";
-        if let Some(nodeinfo) = Voter::<Arc<DummyLogger>>::get_nodeinfo(NodeId::from_pubkey(&PublicKey::from_str(id).unwrap())).await {
+        if let Some(nodeinfo) = Voter::<Arc<DummyLogger>>::get_nodeinfo(NodeId::from_pubkey(
+            &PublicKey::from_str(id).unwrap(),
+        ))
+        .await
+        {
             assert_eq!(id, nodeinfo.pub_key);
             assert!(nodeinfo.channelcount > 0)
         } else {
