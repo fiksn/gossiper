@@ -150,7 +150,7 @@ where
         guard.remove(&node.node_id);
     }
 
-    pub(super) async fn get_nodeinfo(node_id: NodeId) -> Option<NodeInfo> {
+    async fn get_nodeinfo(node_id: NodeId) -> Option<NodeInfo> {
         reqwest::get(format!("https://1ml.com/node/{}/json", node_id.to_string()))
             .await.ok()?.json::<NodeInfo>().await.ok()
         

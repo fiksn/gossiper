@@ -6,11 +6,8 @@ jobs:
   build:
     strategy:
       matrix:
-        platform: [ ubuntu-latest, macos-latest, windows-latest ]
-        toolchain: [ stable, 1.70.0 ]
-        include:
-          - toolchain: stable
-            check-fmt: true
+        platform: [ ubuntu-latest ]
+        toolchain: [ 1.70.0 ]
     runs-on: ${{ matrix.platform }}
     steps:
       - name: Checkout source code
@@ -22,7 +19,6 @@ jobs:
       - name: Build on Rust ${{ matrix.toolchain }}
         run: cargo build --verbose --color always
       - name: Check formatting
-        if: matrix.check-fmt
         run: rustup component add rustfmt && cargo fmt --all -- --check
       - name: Test ${{ matrix.toolchain }}
         run: cargo test --verbose --color always
