@@ -19,7 +19,7 @@ lightning-background-processor = { git = "https://github.com/fiksn/rust-lightnin
 lightning-rapid-gossip-sync = { git = "https://github.com/fiksn/rust-lightning" }
 base64 = "0.21.3"
 # do not upgrade to bitcoon 0.30!
-bitcoin = "0.29.2"
+bitcoin = "0.30.1"
 bitcoin-bech32 = "0.13.0"
 bech32 = "0.9.1"
 hex = "0.4.3"
