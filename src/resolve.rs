@@ -379,9 +379,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_resolve() {
-        let mut resolver = CachingChannelResolving::new(None);
+        let logger = Arc::new(DummyLogger::new());
+        let mut resolver = CachingChannelResolving::new(logger);
 
-        let a = resolver.get_endpoints_async(1);
+        let a = resolver.get_endpoints_async(123u64);
         resolver.resolve();
 
         let result = a.await;

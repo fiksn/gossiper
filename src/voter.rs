@@ -4,6 +4,9 @@ use lightning::*;
 use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
 use std::sync::{Arc, Mutex};
+use reqwest;
+use std::str::FromStr;
+use serde::Deserialize;
 
 use super::dummy::*;
 use super::resolve::*;
@@ -83,25 +86,29 @@ where
             node.node_id,
             node.alias
         );
-        let mut guard = self.votes.lock().unwrap();
-
         let num: u8;
 
-        if let Some(one) = guard.get_mut(&node.node_id) {
-            (*one).insert(chanid);
-            num = (*one).len() as u8;
-        } else {
-            let mut one = HashSet::new();
-            one.insert(chanid);
-            guard.insert(node.node_id, one);
-            num = 1;
+        {
+            let mut guard = self.votes.lock().unwrap();
+
+            if let Some(one) = guard.get_mut(&node.node_id) {
+                (*one).insert(chanid);
+                num = (*one).len() as u8;
+            } else {
+                let mut one = HashSet::new();
+                one.insert(chanid);
+                guard.insert(node.node_id, one);
+                num = 1;
+            }
         }
 
         if num >= self.threshold {
+            let info = Self::get_nodeinfo(node.node_id).await;
             log_info!(
                 self.logger,
-                "THRESHOLD BREACHED num: {} node: {} alias: {}",
+                "THRESHOLD BREACHED num: {}/{} node: {} alias: {}",
                 num,
+                info.map_or(0, |info| info.channelcount),
                 node.node_id,
                 node.alias
             );
@@ -141,5 +148,36 @@ where
             }
         }
         guard.remove(&node.node_id);
+    }
+
+    pub(super) async fn get_nodeinfo(node_id: NodeId) -> Option<NodeInfo> {
+        reqwest::get(format!("https://1ml.com/node/{}/json", node_id.to_string()))
+            .await.ok()?.json::<NodeInfo>().await.ok()
+        
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct NodeInfo {
+    pub pub_key: String,
+    pub channelcount: u64,
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::test;
+    use bitcoin::secp256k1::PublicKey;
+
+    #[tokio::test]
+    async fn test_get_nodeinfo() {
+        let id: &str = "0327f763c849bfd218910e41eef74f5a737989358ab3565f185e1a61bb7df445b8";
+        if let Some(nodeinfo) = Voter::<Arc<DummyLogger>>::get_nodeinfo(NodeId::from_pubkey(&PublicKey::from_str(id).unwrap())).await {
+            assert_eq!(id, nodeinfo.pub_key);
+            assert!(nodeinfo.channelcount > 0)
+        } else {
+            assert!(false, "No nodeinfo received");
+        }
     }
 }
