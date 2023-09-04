@@ -5,7 +5,7 @@ This is yet another [LDK](https://lightningdevkit.org/) [demo](https://github.co
 
 ## Goal
 
-The current goal of this tool is to determine whether a lightning node has connectivity issues just by listening to gossip messages. 
+Current goal of this tool is to determine whether a lightning node has connectivity issues just by listening to gossip messages. 
 
 Trick is that peers disable their channel with a node as soon as TCP connection breaks. So if more than n (configurable threshold) nodes disable a channel with a specific node we can tell with a high probability that it is unavailable.
 All without sending a single probe packet to the target.
@@ -18,9 +18,9 @@ For querying number of channels [1ml](https://1ml.com/) API is used (alternative
 
 ## Status
 
-Just to avoid misunderstandings: this is currently a PoC, use at your own risk. (It won't blow up your computer but you might get loads of ugly debug logs).
+Just to avoid misunderstandings: this is currently a PoC, use at your own risk. (It won't blow up your computer, but you might get loads of ugly debug logs).
 
-Gossiper depends on a forked version of [LDK](https://github.com/fiksn/rust-lightning). I've added `send_to_node` and `send_to_random_node` methods to `PeerManager` [commit](https://github.com/lightningdevkit/rust-lightning/commit/c6dbecaf24661df2b12ceb9fd2ec04937250c7eb) in order to send requests to other lightning nodes. Might be there is some easier way to accomplish this, but I am not aware of it yet. Feel free to add a PR.
+Gossiper depends on a forked version of [LDK](https://github.com/fiksn/rust-lightning). I've added `send_to_node` and `send_to_random_node` methods to `PeerManager` (in this [commit](https://github.com/lightningdevkit/rust-lightning/commit/c6dbecaf24661df2b12ceb9fd2ec04937250c7eb)) in order to send requests to other lightning nodes. Might be there is some easier way to accomplish this, but I am not aware of it yet. Feel free to add a PR.
 
 ## Fingerprinting lightning implementations
 
