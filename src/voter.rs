@@ -8,6 +8,8 @@ use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
+use super::Threshold;
+
 use super::dummy::*;
 use super::resolve::*;
 
@@ -23,7 +25,7 @@ where
     L::Target: Logger,
 {
     logger: L,
-    threshold: u8,
+    threshold: Threshold,
     resolver: Mutex<Option<Arc<CachingChannelResolving<Arc<DummyLogger>>>>>,
     votes: Mutex<HashMap<NodeId, HashSet<u64>>>,
 }
@@ -31,7 +33,7 @@ impl<L: Deref + Send + std::marker::Sync + 'static> Voter<L>
 where
     L::Target: Logger,
 {
-    pub fn new(threshold: u8, logger: L) -> Voter<L> {
+    pub fn new(threshold: Threshold, logger: L) -> Voter<L> {
         Voter {
             resolver: Mutex::new(None),
             logger: logger,
@@ -102,13 +104,13 @@ where
             }
         }
 
-        if num >= self.threshold {
-            let info = Self::get_nodeinfo(node.node_id).await;
+        let (b, channels) = self.threshold_breached(node.node_id, num as u64).await;
+        if b {
             log_info!(
                 self.logger,
                 "THRESHOLD BREACHED num: {}/{} node: {} alias: {}",
                 num,
-                info.map_or(0, |info| info.channelcount),
+                channels,
                 node.node_id,
                 node.alias
             );
@@ -136,18 +138,59 @@ where
             node.alias
         );
 
-        let mut guard = self.votes.lock().unwrap();
-        if let Some(one) = guard.get(&node.node_id) {
-            if one.len() as u8 >= self.threshold {
-                log_info!(
-                    self.logger,
-                    "THRESHOLD NOT BREACHED anymore, node: {} alias: {}",
-                    node.node_id,
-                    node.alias
-                );
+        let num: u8;
+
+        {
+            let guard = self.votes.lock().unwrap();
+
+            if let Some(one) = guard.get(&node.node_id) {
+                num = one.len() as u8;
+            } else {
+                num = 0;
             }
         }
-        guard.remove(&node.node_id);
+
+        let (b, channels) = self.threshold_breached(node.node_id, num as u64).await;
+        if b {
+            log_info!(
+                self.logger,
+                "THRESHOLD NOT BREACHED anymore, node: {} alias: {}",
+                node.node_id,
+                node.alias
+            );
+        }
+
+        {
+            // Delete all
+            let mut guard = self.votes.lock().unwrap();
+            guard.remove(&node.node_id);
+        }
+    }
+
+    async fn threshold_breached(&self, node_id: NodeId, num: u64) -> (bool, u64) {
+        let mut limit = 3;
+        let mut percent: f64 = 0f64;
+
+        match self.threshold {
+            Threshold::Percentage(value) => {
+                percent = value as f64;
+            }
+            Threshold::Number(value) => {
+                limit = value;
+            }
+        };
+
+        if num >= limit {
+            let info = Self::get_nodeinfo(node_id).await;
+            let channels = info.map_or(1, |info| info.channelcount);
+            if percent > 0f64 && ((num / channels * 100) as f64) < percent {
+                return (false, 0);
+            }
+
+            return (true, channels);
+        }
+
+        return (false, 0);
     }
 
     async fn get_nodeinfo(node_id: NodeId) -> Option<NodeInfo> {

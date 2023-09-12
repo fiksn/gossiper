@@ -49,12 +49,14 @@ use std::collections::HashMap;
 use std::fmt;
 use std::ops::Deref;
 use std::str::FromStr;
+use std::string::ParseError;
 use std::sync::{Arc, Mutex};
 use std::{error::Error, net::SocketAddr};
 use std::{
     thread,
     time::{Duration, SystemTime},
 };
+use thiserror::Error;
 use tokio::main;
 use tokio::net::TcpStream;
 use tokio::net::ToSocketAddrs;
@@ -64,6 +66,42 @@ use voter::*;
 struct ChannelInfo {
     node1: NodeId,
     node2: NodeId,
+}
+
+#[derive(Error, Debug, Eq, PartialEq)]
+pub enum ParseThresholdError {
+    #[error("Parse error")]
+    ParseError,
+    #[error("Parse int error {0}")]
+    ParseIntError(#[from] std::num::ParseIntError),
+    #[error("Parse foat error {0}")]
+    ParseFloatError(#[from] std::num::ParseFloatError),
+}
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Threshold {
+    Number(u64),
+    Percentage(f64),
+}
+
+impl FromStr for Threshold {
+    type Err = ParseThresholdError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.ends_with('%') {
+            let x = &s[..s.len() - 1];
+            let num = x.parse::<f64>()?;
+
+            if num < 0f64 || num > 100f64 {
+                return Err(ParseThresholdError::ParseError);
+            }
+
+            Ok(Self::Percentage(num))
+        } else {
+            let num = s.parse::<u64>()?;
+
+            Ok(Self::Number(num))
+        }
+    }
 }
 
 #[derive(Parser, Debug)]
@@ -76,8 +114,8 @@ struct Args {
     nodes: Vec<LightningNodeAddr>,
 
     /// Threshold
-    #[arg(short, long, num_args = 1, default_value_t = 5)]
-    threshold: u8,
+    #[arg(short, long, num_args = 1, default_value = "10%")]
+    threshold: Threshold,
 }
 
 const DEBUG: bool = false;
@@ -191,5 +229,26 @@ async fn connect(
     } else {
         eprintln!("Failed to connect to the node {}", node);
         return None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_threshold_parsing() {
+        assert!(Threshold::from_str("100%") == Ok(Threshold::Percentage(100f64)));
+        assert!(Threshold::from_str("99.9%") == Ok(Threshold::Percentage(99.9f64)));
+        assert!(Threshold::from_str("101%").is_err());
+        assert!(Threshold::from_str("%").is_err());
+        assert!(Threshold::from_str("-1%").is_err());
+        assert!(Threshold::from_str("aa").is_err());
+        assert!(Threshold::from_str("%2").is_err());
+        assert!(Threshold::from_str("21%") == Ok(Threshold::Percentage(21f64)));
+
+        assert!(Threshold::from_str("-11").is_err());
+        assert!(Threshold::from_str("21") == Ok(Threshold::Number(21)));
+        assert!(Threshold::from_str("101") == Ok(Threshold::Number(101)));
     }
 }
