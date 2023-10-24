@@ -17,7 +17,7 @@ lightning-net-tokio = { git = "https://github.com/fiksn/rust-lightning" }
 lightning-persister = { git = "https://github.com/fiksn/rust-lightning" }
 lightning-background-processor = { git = "https://github.com/fiksn/rust-lightning", features = [ "futures" ] }
 lightning-rapid-gossip-sync = { git = "https://github.com/fiksn/rust-lightning" }
-base64 = "0.21.3"
+base64 = "0.21.5"
 # do not upgrade to bitcoon 0.30!
 bitcoin = "0.29.2"
 bitcoin-bech32 = "0.13.0"
